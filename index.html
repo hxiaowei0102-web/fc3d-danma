@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>福彩3D胆码预测 · 融合周期共振</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
+.header{background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);color:#fff;padding:18px 16px;text-align:center}
+.header h1{font-size:22px;font-weight:700;letter-spacing:3px;margin-bottom:4px}
+.header .sub{font-size:11px;opacity:.65}
+.container{max-width:720px;margin:0 auto;padding:12px 14px}
+
+/* 预测卡片 */
+.pred-card{background:linear-gradient(145deg,#fff,#fffbf0);border:2px solid #e74c3c;border-radius:20px;padding:28px 20px 20px;margin:16px 0 12px;text-align:center;box-shadow:0 8px 32px rgba(231,76,60,.12)}
+.pred-card .label{font-size:12px;color:#999;letter-spacing:4px;text-transform:uppercase;margin-bottom:4px}
+.pred-card .issue{font-size:15px;color:#e74c3c;font-weight:600;margin-bottom:14px}
+.balls{display:flex;justify-content:center;gap:10px}
+.ball{width:52px;height:52px;line-height:52px;border-radius:50%;
+  background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;
+  font-size:22px;font-weight:800;text-align:center;
+  box-shadow:0 4px 16px rgba(231,76,60,.35);
+  animation:pulse 2s ease-in-out infinite}
+.ball:nth-child(1){animation-delay:0s}
+.ball:nth-child(2){animation-delay:.15s}
+.ball:nth-child(3){animation-delay:.3s}
+.ball:nth-child(4){animation-delay:.45s}
+.ball:nth-child(5){animation-delay:.6s}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+.pred-card .footnote{font-size:11px;color:#aaa;margin-top:14px}
+
+/* 统计卡 */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.stat{background:#fff;border-radius:12px;padding:14px 10px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.stat .val{font-size:26px;font-weight:800}
+.stat .lbl{font-size:10px;color:#999;margin-top:2px}
+.stat.s1{border-top:3px solid #e74c3c}.stat.s1 .val{color:#e74c3c}
+.stat.s2{border-top:3px solid #27ae60}.stat.s2 .val{color:#27ae60}
+.stat.s3{border-top:3px solid #3498db}.stat.s3 .val{color:#3498db}
+.stat.s4{border-top:3px solid #f39c12}.stat.s4 .val{color:#f39c12}
+
+/* 区块 */
+.section{background:#fff;border-radius:14px;padding:16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.03)}
+.section .title{font-size:15px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #f0f0f0}
+
+/* 分布条 */
+.bar-row{display:flex;gap:6px}
+.bar{flex:1;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff}
+.bar.hit{background:linear-gradient(90deg,#27ae60,#2ecc71)}
+.bar.miss{background:#e0e0e0;color:#999}
+
+/* 热门数字 */
+.hot-tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.ht{display:inline-flex;align-items:center;gap:3px;background:#fff3e0;color:#e65100;padding:4px 12px;border-radius:20px;font-size:14px;font-weight:700}
+.ht small{font-size:10px;font-weight:400;opacity:.7}
+
+/* 表格 */
+.tb-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#fafafa;padding:10px 6px;text-align:center;font-weight:600;border-bottom:2px solid #eee;white-space:nowrap;font-size:11px;color:#555}
+td{padding:8px 5px;text-align:center;border-bottom:1px solid #f5f5f5}
+tr:hover td{background:#fafbff}
+.ac{font-weight:700;color:#e74c3c;letter-spacing:3px}
+.pc{color:#444;letter-spacing:2px}
+.hit-yes td{background:#f0fdf4}
+.mk-yes{color:#16a34a;font-weight:700;font-size:11px}
+.mk-no{color:#d4d4d8;font-weight:600}
+
+.warn{background:#fffbe6;border:1px solid #ffd666;border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:11.5px;color:#8c6d00;text-align:center}
+
+.footer{text-align:center;padding:20px;color:#bbb;font-size:10px}
+
+@media(max-width:600px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .ball{width:42px;height:42px;line-height:42px;font-size:18px}
+  .balls{gap:7px}
+  .pred-card{padding:20px 12px 14px}
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🎯 福彩3D 胆码预测</h1>
+  <div class="sub">融合周期共振法 (V2+V4) · 5胆码 · 30期回测 · 实时数据</div>
+</div>
+
+<div class="container">
+  <div class="warn"><strong>⚠ 风险提示：</strong>彩票开奖具有随机性，本软件仅供数据分析参考，不构成投注建议。请理性购彩，量力而行。</div>
+
+  <div class="pred-card">
+    <div class="label">▎下期预测胆码</div>
+    <div class="issue">期号 2026162</div>
+    <div class="balls">
+      <div class="ball">2</div> <div class="ball">7</div> <div class="ball">6</div> <div class="ball">9</div> <div class="ball">3</div>
+    </div>
+    <div class="footnote">融合周期共振法 (V2+V4) · 基于212期历史数据 · 数据来源 cwl.gov.cn</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat s1"><div class="val">100.0%</div><div class="lbl">30期命中率</div></div>
+    <div class="stat s2"><div class="val">30/30</div><div class="lbl">命中期数</div></div>
+    <div class="stat s3"><div class="val">1.53</div><div class="lbl">均命中个数/期</div></div>
+    <div class="stat s4"><div class="val">212</div><div class="lbl">历史数据期数</div></div>
+  </div>
+
+  <div class="section">
+    <div class="title">📊 30期命中分布</div>
+    <div class="bar-row">
+      <div class="bar hit" style="flex:30">30期 命中 ✓</div>
+      <div class="bar miss" style="flex:0">0期 未中 ✗</div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:#999">高频预测数字</div>
+    <div class="hot-tags"><span class="ht">6<small>30次</small></span><span class="ht">8<small>28次</small></span><span class="ht">7<small>26次</small></span><span class="ht">2<small>22次</small></span><span class="ht">0<small>16次</small></span></div>
+  </div>
+
+  <div class="section">
+    <div class="title">📋 30期回测详情（近→远）</div>
+    <div class="tb-wrap">
+      <table>
+        <thead><tr><th>期号</th><th>日期</th><th>开奖号码</th><th>预测胆码</th><th>结果</th></tr></thead>
+        <tbody><tr class="hit-yes"><td>2026161</td><td>2026-06-20</td><td class="ac">5 2 9</td><td class="pc">7 2 6 4 3</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026160</td><td>2026-06-19</td><td class="ac">3 3 2</td><td class="pc">7 2 4 6 0</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026159</td><td>2026-06-18</td><td class="ac">9 9 5</td><td class="pc">7 2 6 8 5</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026158</td><td>2026-06-17</td><td class="ac">1 7 8</td><td class="pc">7 2 6 8 0</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026157</td><td>2026-06-16</td><td class="ac">3 2 7</td><td class="pc">7 6 2 8 0</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026156</td><td>2026-06-15</td><td class="ac">1 6 2</td><td class="pc">7 2 6 8 0</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026155</td><td>2026-06-14</td><td class="ac">4 0 9</td><td class="pc">7 6 2 8 0</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026154</td><td>2026-06-13</td><td class="ac">3 7 7</td><td class="pc">6 8 2 7 0</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026153</td><td>2026-06-12</td><td class="ac">8 8 7</td><td class="pc">6 2 7 0 8</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026152</td><td>2026-06-11</td><td class="ac">2 2 0</td><td class="pc">6 7 2 4 8</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026151</td><td>2026-06-10</td><td class="ac">6 3 1</td><td class="pc">6 7 2 4 8</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026150</td><td>2026-06-09</td><td class="ac">7 2 0</td><td class="pc">6 7 4 8 2</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026149</td><td>2026-06-08</td><td class="ac">6 9 6</td><td class="pc">7 6 8 4 2</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026148</td><td>2026-06-07</td><td class="ac">4 0 8</td><td class="pc">7 6 8 2 4</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026147</td><td>2026-06-06</td><td class="ac">7 1 2</td><td class="pc">6 7 8 4 2</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026146</td><td>2026-06-05</td><td class="ac">4 6 4</td><td class="pc">7 8 6 2 9</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026145</td><td>2026-06-04</td><td class="ac">2 7 9</td><td class="pc">8 6 7 2 1</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026144</td><td>2026-06-03</td><td class="ac">7 2 6</td><td class="pc">8 7 6 2 9</td><td><span class="mk-yes">✓ 中3个</span></td></tr><tr class="hit-yes"><td>2026143</td><td>2026-06-02</td><td class="ac">3 7 6</td><td class="pc">8 6 1 7 9</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026142</td><td>2026-06-01</td><td class="ac">8 9 4</td><td class="pc">8 6 7 4 1</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026141</td><td>2026-05-31</td><td class="ac">3 9 7</td><td class="pc">8 6 4 7 5</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026140</td><td>2026-05-30</td><td class="ac">2 8 5</td><td class="pc">8 6 4 7 0</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026139</td><td>2026-05-29</td><td class="ac">2 8 6</td><td class="pc">8 0 6 7 2</td><td><span class="mk-yes">✓ 中3个</span></td></tr><tr class="hit-yes"><td>2026138</td><td>2026-05-28</td><td class="ac">7 9 0</td><td class="pc">8 6 0 2 5</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026137</td><td>2026-05-27</td><td class="ac">1 6 5</td><td class="pc">8 1 6 0 4</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026136</td><td>2026-05-26</td><td class="ac">8 8 9</td><td class="pc">8 6 7 0 4</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026135</td><td>2026-05-25</td><td class="ac">4 8 7</td><td class="pc">6 8 0 1 2</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026134</td><td>2026-05-24</td><td class="ac">6 5 4</td><td class="pc">8 0 7 1 6</td><td><span class="mk-yes">✓ 中1个</span></td></tr><tr class="hit-yes"><td>2026133</td><td>2026-05-23</td><td class="ac">0 8 0</td><td class="pc">1 7 6 8 0</td><td><span class="mk-yes">✓ 中2个</span></td></tr><tr class="hit-yes"><td>2026132</td><td>2026-05-22</td><td class="ac">7 5 6</td><td class="pc">1 8 0 6 2</td><td><span class="mk-yes">✓ 中1个</span></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  数据来源: 中国福利彩票官网 cwl.gov.cn · 融合周期共振法 (V2+V4)<br>
+  生成时间: <span id="t"></span> · 仅供参考
+</div>
+
+<script>document.getElementById('t').textContent=new Date().toLocaleString('zh-CN')</script>
+</body>
+</html>
