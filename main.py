@@ -378,7 +378,13 @@ def generate_html(all_data, bt30):
     det30 = ''
     for r in reversed(bt30['details']):
         ast = ' '.join(str(d) for d in r['actual'])
-        pst = ' '.join(str(d) for d in r['picks'])
+        actual_set = set(r['actual'])
+        # 预测胆码：命中的标红，未中的标灰
+        pballs = ''.join(
+            f'<span class="pb-hit">{d}</span>' if d in actual_set
+            else f'<span class="pb-miss">{d}</span>'
+            for d in r['picks']
+        )
         if r['hit']:
             cls = 'hit-yes'
             mark = f'<span class="mk-yes">✓ 中{r["n_hits"]}个</span>'
@@ -390,7 +396,7 @@ def generate_html(all_data, bt30):
             f'<td>{r["issue"]}</td>'
             f'<td>{r["date"]}</td>'
             f'<td class="ac">{ast}</td>'
-            f'<td class="pc">{pst}</td>'
+            f'<td class="pc">{pballs}</td>'
             f'<td>{mark}</td>'
             f'</tr>'
         )
@@ -414,7 +420,7 @@ def generate_html(all_data, bt30):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>福彩3D胆码预测 · 融合周期共振</title>
+<title>晓炜胆码预测 · 融合周期共振</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}}
@@ -473,7 +479,9 @@ th{{background:#fafafa;padding:10px 6px;text-align:center;font-weight:600;border
 td{{padding:8px 5px;text-align:center;border-bottom:1px solid #f5f5f5}}
 tr:hover td{{background:#fafbff}}
 .ac{{font-weight:700;color:#e74c3c;letter-spacing:3px}}
-.pc{{color:#444;letter-spacing:2px}}
+.pc{{color:#444;letter-spacing:1px;display:flex;justify-content:center;gap:5px;flex-wrap:wrap}}
+.pb-hit{{display:inline-block;width:28px;height:28px;line-height:28px;border-radius:50%;background:#e74c3c;color:#fff;font-weight:800;font-size:13px;text-align:center}}
+.pb-miss{{display:inline-block;width:28px;height:28px;line-height:28px;border-radius:50%;background:#e8e8e8;color:#bbb;font-weight:600;font-size:13px;text-align:center}}
 .hit-yes td{{background:#f0fdf4}}
 .mk-yes{{color:#16a34a;font-weight:700;font-size:11px}}
 .mk-no{{color:#d4d4d8;font-weight:600}}
@@ -492,7 +500,7 @@ tr:hover td{{background:#fafbff}}
 </head>
 <body>
 <div class="header">
-  <h1>🎯 福彩3D 胆码预测</h1>
+  <h1>🎯 晓炜胆码预测</h1>
   <div class="sub">{algo_name} · 5胆码 · 30期回测 · 实时数据</div>
 </div>
 
