@@ -189,6 +189,8 @@ def _parse_cwl_result(data):
 
 def fetch_latest():
     """多源获取最新开奖数据"""
+    import re
+    
     # 源1: cwl.gov.cn (requests直连, 国内可用)
     if HAS_REQUESTS:
         try:
@@ -207,7 +209,28 @@ def fetch_latest():
         except Exception as e:
             print(f"  [源1:cwl.gov.cn] {e}")
     
-    # 源2: cwl.gov.cn (cloudscraper, GitHub Actions用)
+    # 源2: kjapi.com HTML抓取 (全球可访问)  
+    if HAS_REQUESTS:
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            url = f"https://www.kjapi.com/hallhistoryDetail/fc3d/{today}"
+            r = _requests.get(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }, timeout=15)
+            if r.status_code == 200:
+                text = r.text
+                issue_match = re.findall(r'(\d{7})', text)
+                num_match = re.findall(r'<li[^>]*>(\d)</li>', text)
+                if issue_match and len(num_match) >= 3:
+                    issue = issue_match[0]
+                    digits = [int(n) for n in num_match[:3]]
+                    results = [[issue, today, digits]]
+                    print(f"  [源2:kjapi.com] ✓ 获取 {today}: {issue}={digits}")
+                    return results
+        except Exception as e:
+            print(f"  [源2:kjapi.com] {e}")
+    
+    # 源3: cwl.gov.cn via cloudscraper (备用)
     if HAS_SCRAPER:
         try:
             scraper = cloudscraper.create_scraper()
