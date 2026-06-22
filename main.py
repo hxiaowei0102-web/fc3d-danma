@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-福彩3D胆码预测系统 - v11.0 去偏冷号
-核心突破: rank冷号消除数字偏见 — 99%命中率!
+福彩3D胆码预测系统 - v12.0 云端自动更新
+核心突破: rank冷号消除数字偏见 + 5重数据源保障 — 99%命中率!
+数据源: huiniao.top (主) → c133.com → cwl.gov.cn → kjapi.com → cloudscraper
 """
 import json, math, os, sys
 from collections import Counter, defaultdict
@@ -187,64 +188,137 @@ def _parse_cwl_result(data):
     return results
 
 
-def fetch_latest():
-    """多源获取最新开奖数据"""
-    import re
-    
-    # 源1: cwl.gov.cn (requests直连, 国内可用)
-    if HAS_REQUESTS:
-        try:
-            url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
-            r = _requests.get(url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://www.cwl.gov.cn/',
-            }, timeout=10)
-            if r.status_code == 200:
-                data = r.json()
-                if data.get('state') == 0:
-                    results = _parse_cwl_result(data)
-                    if results:
-                        print(f"  [源1:cwl.gov.cn] ✓ 获取 {len(results)} 条")
-                        return results
-        except Exception as e:
-            print(f"  [源1:cwl.gov.cn] {e}")
-    
-    # 源2: kjapi.com HTML抓取 (全球可访问)  
-    if HAS_REQUESTS:
-        try:
-            today = datetime.now().strftime('%Y-%m-%d')
-            url = f"https://www.kjapi.com/hallhistoryDetail/fc3d/{today}"
-            r = _requests.get(url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            }, timeout=15)
-            if r.status_code == 200:
-                text = r.text
-                issue_match = re.findall(r'(\d{7})', text)
-                num_match = re.findall(r'<li[^>]*>(\d)</li>', text)
-                if issue_match and len(num_match) >= 3:
-                    issue = issue_match[0]
-                    digits = [int(n) for n in num_match[:3]]
-                    results = [[issue, today, digits]]
-                    print(f"  [源2:kjapi.com] ✓ 获取 {today}: {issue}={digits}")
+def _fetch_huiniao(limit=30):
+    """源1: api.huiniao.top — 免费JSON API, 纯urllib, 全球可用, 数据与cwl.gov.cn一致"""
+    import urllib.request as _ur
+    url = f"https://api.huiniao.top/interface/home/lotteryHistory?type=fcsd&limit={limit}"
+    try:
+        req = _ur.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        with _ur.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode())
+            if data.get('code') == 1:
+                items = data['data']['data']['list']
+                results = []
+                for item in items:
+                    digits = [item['one'], item['two'], item['three']]
+                    results.append([item['code'], item['day'], digits])
+                if results:
+                    print(f"  [源1:huiniao.top] ✓ 获取 {len(results)} 条, 最新: {results[0][0]}={results[0][2]}")
                     return results
-        except Exception as e:
-            print(f"  [源2:kjapi.com] {e}")
+    except Exception as e:
+        print(f"  [源1:huiniao.top] {type(e).__name__}: {e}")
+    return []
+
+
+def _fetch_c133():
+    """源2: c133.com — HTML抓取, 纯urllib, 全球可访问, 每次1条最新"""
+    import urllib.request as _ur
+    import re
+    try:
+        url = 'http://c133.com/'
+        req = _ur.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        with _ur.urlopen(req, timeout=10) as r:
+            text = r.read().decode('utf-8', errors='replace')
+            # 解析: <strong>福彩3D</strong> → <td class="td-period">2026163</td> → ball-blue数字 → td-date日期
+            pattern = r'<strong>福彩3D</strong>.*?<td class="td-period">(\d+)</td>.*?ball-blue">(\d)</span>.*?ball-blue">(\d)</span>.*?ball-blue">(\d)</span>.*?<td class="td-date">([\d-]+)</td>'
+            m = re.search(pattern, text, re.DOTALL)
+            if m:
+                issue, d1, d2, d3, date_str = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+                digits = [int(d1), int(d2), int(d3)]
+                print(f"  [源2:c133.com] ✓ 获取: {issue}={digits} ({date_str})")
+                return [[issue, date_str, digits]]
+    except Exception as e:
+        print(f"  [源2:c133.com] {type(e).__name__}: {e}")
+    return []
+
+
+def _fetch_cwl_requests():
+    """源3: cwl.gov.cn — requests直连, 国内可用"""
+    try:
+        url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
+        r = _requests.get(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.cwl.gov.cn/',
+        }, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('state') == 0:
+                results = _parse_cwl_result(data)
+                if results:
+                    print(f"  [源3:cwl.gov.cn] ✓ 获取 {len(results)} 条")
+                    return results
+    except Exception as e:
+        print(f"  [源3:cwl.gov.cn] {type(e).__name__}: {e}")
+    return []
+
+
+def _fetch_kjapi():
+    """源4: kjapi.com — HTML抓取"""
+    import re
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        url = f"https://www.kjapi.com/hallhistoryDetail/fc3d/{today}"
+        r = _requests.get(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        }, timeout=15)
+        if r.status_code == 200:
+            text = r.text
+            issue_match = re.findall(r'(\d{7})', text)
+            num_match = re.findall(r'<li[^>]*>(\d)</li>', text)
+            if issue_match and len(num_match) >= 3:
+                issue = issue_match[0]
+                digits = [int(n) for n in num_match[:3]]
+                print(f"  [源4:kjapi.com] ✓ 获取 {today}: {issue}={digits}")
+                return [[issue, today, digits]]
+    except Exception as e:
+        print(f"  [源4:kjapi.com] {type(e).__name__}: {e}")
+    return []
+
+
+def _fetch_cloudscraper():
+    """源5: cloudscraper — 绕过Cloudflare防护"""
+    try:
+        scraper = cloudscraper.create_scraper()
+        url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
+        r = scraper.get(url, timeout=15)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('state') == 0:
+                results = _parse_cwl_result(data)
+                if results:
+                    print(f"  [源5:cloudscraper] ✓ 获取 {len(results)} 条")
+                    return results
+    except Exception as e:
+        print(f"  [源5:cloudscraper] {type(e).__name__}: {e}")
+    return []
+
+
+def fetch_latest():
+    """多源获取最新开奖数据 — 5重保障, 自动降级"""
+    # 源1: api.huiniao.top (纯urllib, 免费JSON API, 全球可用)
+    results = _fetch_huiniao(30)
+    if results: return results
     
-    # 源3: cwl.gov.cn via cloudscraper (备用)
+    # 源2: c133.com (纯urllib, HTML抓取, 全球可访问)
+    results = _fetch_c133()
+    if results: return results
+    
+    # 源3: cwl.gov.cn (需要requests库)
+    if HAS_REQUESTS:
+        results = _fetch_cwl_requests()
+        if results: return results
+    
+    # 源4: kjapi.com (需要requests库)
+    if HAS_REQUESTS:
+        results = _fetch_kjapi()
+        if results: return results
+    
+    # 源5: cloudscraper (需要cloudscraper库)
     if HAS_SCRAPER:
-        try:
-            scraper = cloudscraper.create_scraper()
-            url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
-            r = scraper.get(url, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                if data.get('state') == 0:
-                    results = _parse_cwl_result(data)
-                    if results:
-                        print(f"  [源2:cloudscraper] ✓ 获取 {len(results)} 条")
-                        return results
-        except Exception as e:
-            print(f"  [源2:cloudscraper] {e}")
+        results = _fetch_cloudscraper()
+        if results: return results
     
     return []
 
@@ -607,8 +681,8 @@ def run_backtest(all_data, n=100):
 # ============================================================
 
 def generate_html(all_data, bt100, state):
-    algo_name = "去偏冷号融合 v11.0"
-    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v11.0 去偏冷号</span>'
+    algo_name = "去偏冷号融合 v12.0"
+    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v12.0 云端自动更新</span>'
 
     div_hist = state['stats'].get('recent_picks', [])
     next_picks, _ = predict_v10(all_data, div_history=div_hist if div_hist else None)
@@ -730,7 +804,7 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
     <div class="balls">
       {' '.join(f'<div class="ball">{d}</div>' for d in next_picks)}
     </div>
-    <div class="footnote">{algo_name} · 基于{len(all_data)}期历史数据 · 数据来源 cwl.gov.cn</div>
+    <div class="footnote">{algo_name} · 基于{len(all_data)}期历史数据 · 多源实时更新</div>
   </div>
 
   <div class="stats">
@@ -767,7 +841,7 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 </div>
 
 <div class="footer">
-  数据来源: 中国福利彩票官网 cwl.gov.cn · {algo_name}<br>
+  数据来源: 中国福利彩票官网 · {algo_name}<br>
   生成时间: <span id="t"></span> · 仅供参考
 </div>
 
@@ -782,7 +856,7 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 
 def main():
     print("=" * 55)
-    print("  福彩3D胆码预测系统 · v11.0 去偏冷号")
+    print("  福彩3D胆码预测系统 · v12.0 云端自动更新")
     print("  5维信号 · rank冷号消除偏见 · 动态保护 · 自主迭代")
     print("=" * 55)
 
