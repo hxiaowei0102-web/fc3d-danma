@@ -14,6 +14,12 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+try:
+    import cloudscraper
+    HAS_SCRAPER = True
+except ImportError:
+    HAS_SCRAPER = False
+
 # ============================================================
 # 参数配置
 # ============================================================
@@ -164,33 +170,59 @@ EMBEDDED = [
 ]
 
 
+def _parse_cwl_result(data):
+    """解析cwl.gov.cn API返回数据"""
+    results = []
+    for item in data.get('result', []):
+        if item.get('name') != '3D':
+            continue
+        red = item.get('red', '')
+        if red:
+            digits = [int(c) for c in red.split(',')]
+            if len(digits) == 3:
+                dt = item.get('date', '')
+                if '(' in dt:
+                    dt = dt[:dt.index('(')]
+                results.append([item.get('code', ''), dt, digits])
+    return results
+
+
 def fetch_latest():
-    if not HAS_REQUESTS: return []
-    try:
-        url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
-        r = _requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://www.cwl.gov.cn/',
-        }, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            if data.get('state') == 0:
-                results = []
-                for item in data['result']:
-                    if item.get('name') != '3D':
-                        continue
-                    red = item.get('red', '')
-                    if red:
-                        digits = [int(c) for c in red.split(',')]
-                        if len(digits) == 3:
-                            # date format: "2026-06-21(日)" → "2026-06-21"
-                            dt = item.get('date', '')
-                            if '(' in dt:
-                                dt = dt[:dt.index('(')]
-                            results.append([item.get('code', ''), dt, digits])
-                return results
-    except Exception as e:
-        print(f"  [在线更新] 获取失败: {e}")
+    """多源获取最新开奖数据"""
+    # 源1: cwl.gov.cn (requests直连, 国内可用)
+    if HAS_REQUESTS:
+        try:
+            url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
+            r = _requests.get(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://www.cwl.gov.cn/',
+            }, timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get('state') == 0:
+                    results = _parse_cwl_result(data)
+                    if results:
+                        print(f"  [源1:cwl.gov.cn] ✓ 获取 {len(results)} 条")
+                        return results
+        except Exception as e:
+            print(f"  [源1:cwl.gov.cn] {e}")
+    
+    # 源2: cwl.gov.cn (cloudscraper, GitHub Actions用)
+    if HAS_SCRAPER:
+        try:
+            scraper = cloudscraper.create_scraper()
+            url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
+            r = scraper.get(url, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get('state') == 0:
+                    results = _parse_cwl_result(data)
+                    if results:
+                        print(f"  [源2:cloudscraper] ✓ 获取 {len(results)} 条")
+                        return results
+        except Exception as e:
+            print(f"  [源2:cloudscraper] {e}")
+    
     return []
 
 
