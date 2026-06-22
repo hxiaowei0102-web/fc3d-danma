@@ -8,6 +8,7 @@ V2周期共振 + V4多尺度 = 最优 · 30/50期双重回测 · 无未来数据
 import json
 import math
 import os
+import re
 import sys
 from collections import Counter, defaultdict
 
@@ -16,6 +17,12 @@ try:
     HAS_REQUESTS = True
 except ImportError:
     HAS_REQUESTS = False
+
+try:
+    import cloudscraper
+    HAS_CLOUDSCRAPER = True
+except ImportError:
+    HAS_CLOUDSCRAPER = False
 
 # ============================================================
 # 嵌入历史数据 (来源: cwl.gov.cn 福彩3D官方数据)
@@ -129,20 +136,38 @@ EMBEDDED = [
     ["2026155","2026-06-14",[4,0,9]],["2026156","2026-06-15",[1,6,2]],
     ["2026157","2026-06-16",[3,2,7]],["2026158","2026-06-17",[1,7,8]],
     ["2026159","2026-06-18",[9,9,5]],["2026160","2026-06-19",[3,3,2]],
-    ["2026161","2026-06-20",[5,2,9]],
+    ["2026161","2026-06-20",[5,2,9]],["2026162","2026-06-21",[5,8,5]],
 ]
 
 
 def fetch_latest():
-    """从cwl.gov.cn获取最新开奖数据，补充嵌入数据"""
+    """从多源获取最新开奖数据（JSON API / HTML页面 / CloudScraper）"""
     if not HAS_REQUESTS:
         return []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Referer': 'https://www.cwl.gov.cn/',
+        'Accept': 'text/html,application/json,application/xhtml+xml,*/*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+    }
+
+    def _parse_html(html):
+        """解析HTML中的开奖数据: 期号 日期 号码"""
+        pattern = r'(\d{7})\s+(\d{4}-\d{2}-\d{2})[^(]*\(\S+\)\s+(\d)\s+(\d)\s+(\d)'
+        matches = re.findall(pattern, html)
+        if matches:
+            results = []
+            for m in matches:
+                issue, date, n1, n2, n3 = m
+                results.append([issue, date, [int(n1), int(n2), int(n3)]])
+            results.sort(key=lambda x: x[0])
+            return results
+        return []
+
+    # 方案A: JSON API
     try:
         url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=5"
-        r = _requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://www.cwl.gov.cn/',
-        }, timeout=10)
+        r = _requests.get(url, headers=headers, timeout=15)
         if r.status_code == 200:
             data = r.json()
             if data.get('state') == 0:
@@ -152,9 +177,45 @@ def fetch_latest():
                     if code and len(code) == 3 and code.isdigit():
                         results.append([item.get('name', ''), item.get('date', ''),
                                       [int(c) for c in code]])
-                return results
+                if results:
+                    print("  [数据源] JSON API")
+                    return results
+        else:
+            print(f"  [JSON API] 返回 {r.status_code}")
     except Exception as e:
-        print(f"  [在线更新] 获取失败: {e}")
+        print(f"  [JSON API] 异常: {e}")
+
+    # 方案B: requests HTML页面解析
+    try:
+        url = "https://www.cwl.gov.cn/ygkj/wqkjgg/fc3d/"
+        r = _requests.get(url, headers=headers, timeout=15)
+        if r.status_code == 200:
+            results = _parse_html(r.text)
+            if results:
+                print(f"  [数据源] HTML解析(requests)，获取 {len(results)} 期")
+                return results
+            print("  [HTML解析] 未匹配到数据")
+        else:
+            print(f"  [HTML页面] 返回 {r.status_code}")
+    except Exception as e:
+        print(f"  [HTML解析] 异常: {e}")
+
+    # 方案C: cloudscraper绕过CloudFlare
+    if HAS_CLOUDSCRAPER:
+        try:
+            scraper = cloudscraper.create_scraper()
+            r = scraper.get("https://www.cwl.gov.cn/ygkj/wqkjgg/fc3d/", timeout=20)
+            if r.status_code == 200:
+                results = _parse_html(r.text)
+                if results:
+                    print(f"  [数据源] HTML解析(cloudscraper)，获取 {len(results)} 期")
+                    return results
+                print("  [cloudscraper] 未匹配到数据")
+            else:
+                print(f"  [cloudscraper] 返回 {r.status_code}")
+        except Exception as e:
+            print(f"  [cloudscraper] 异常: {e}")
+
     return []
 
 
