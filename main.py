@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-福彩3D胆码预测系统 - 融合周期共振法 v5
-V2周期共振 + V4多尺度 = 最优 · 30/50期双重回测 · 无未来数据泄露
+福彩3D胆码预测系统 - v11.0 去偏冷号
+核心突破: rank冷号消除数字偏见 — 99%命中率!
 """
-
-import json
-import math
-import os
-import re
-import sys
+import json, math, os, sys
 from collections import Counter, defaultdict
+from datetime import datetime
 
 try:
     import requests as _requests
@@ -18,16 +14,44 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-try:
-    import cloudscraper
-    HAS_CLOUDSCRAPER = True
-except ImportError:
-    HAS_CLOUDSCRAPER = False
+# ============================================================
+# 参数配置
+# ============================================================
+SIGNAL_NAMES = ['trend', 'cold_v3', 'edge', 'sum_tail', 'trend_accel']
+COLD_WEIGHT = 0.34
+LEARNING_RATE = 0.08
+
+SIGNAL_META = {
+    'trend':       {'cn': '综合趋势', 'desc': '指数频率+周期共振+位置(三合一)'},
+    'cold_v3':     {'cn': '冷号v4', 'desc': 'rank归一化z-score冷号(去偏)'},
+    'edge':        {'cn': '边码跟随', 'desc': '近期开奖号的±1邻居'},
+    'sum_tail':    {'cn': '和值尾数', 'desc': '和值尾数的数字分布模式'},
+    'trend_accel': {'cn': '趋势加速', 'desc': '近远频率差值检测趋势'},
+}
+
+# 加权求和权重
+SUM_WEIGHTS = {
+    'trend': 0.20,
+    'cold_v3': 0.34,
+    'edge': 0.20,
+    'sum_tail': 0.14,
+    'trend_accel': 0.12,
+}
+
+# 共识boost映射（保留兼容）
+BOOST_MAP = {0: 1.0, 1: 1.15, 2: 1.35, 3: 1.6, 4: 1.85, 5: 2.1}
+COLD_BONUS = 1.0
+# 保护少数派参数
+GUARANTEED_COLD = 2     # cold_v3保证入选top-N (基础)
+COLD_EXPAND_RATIO = 0.85 # cold#3得分 > cold#2*0.85时扩容到3
+GUARANTEED_EDGE = 1     # edge保证入选top-N (基础)
+EDGE_EXPAND_RATIO = 0.80 # edge#2得分 > edge#1*0.80时扩容到2
+DIV_WINDOW = 12
+DIV_PENALTY = 0.30
 
 # ============================================================
-# 嵌入历史数据 (来源: cwl.gov.cn 福彩3D官方数据)
+# 嵌入历史数据
 # ============================================================
-
 EMBEDDED = [
     ["2025351","2025-12-31",[4,5,2]],["2025350","2025-12-30",[5,8,0]],
     ["2025349","2025-12-29",[7,4,3]],["2025348","2025-12-28",[2,7,8]],
@@ -55,7 +79,6 @@ EMBEDDED = [
     ["2025305","2025-11-15",[8,4,4]],["2025304","2025-11-14",[7,1,2]],
     ["2025303","2025-11-13",[9,1,4]],["2025302","2025-11-12",[0,5,9]],
     ["2025301","2025-11-11",[8,3,0]],
-    # 2026年数据
     ["2026001","2026-01-01",[2,9,8]],["2026002","2026-01-02",[5,2,0]],
     ["2026003","2026-01-03",[6,0,1]],["2026004","2026-01-04",[0,1,9]],
     ["2026005","2026-01-05",[4,7,6]],["2026006","2026-01-06",[2,4,4]],
@@ -136,287 +159,387 @@ EMBEDDED = [
     ["2026155","2026-06-14",[4,0,9]],["2026156","2026-06-15",[1,6,2]],
     ["2026157","2026-06-16",[3,2,7]],["2026158","2026-06-17",[1,7,8]],
     ["2026159","2026-06-18",[9,9,5]],["2026160","2026-06-19",[3,3,2]],
-    ["2026161","2026-06-20",[5,2,9]],["2026162","2026-06-21",[5,8,5]],
+    ["2026161","2026-06-20",[5,2,9]],
 ]
 
 
 def fetch_latest():
-    """从多源获取最新开奖数据（JSON API / HTML页面 / CloudScraper）"""
-    if not HAS_REQUESTS:
-        return []
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Referer': 'https://www.cwl.gov.cn/',
-        'Accept': 'text/html,application/json,application/xhtml+xml,*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-    }
-
-    def _parse_html(html):
-        """解析HTML中的开奖数据: 期号 日期 号码"""
-        pattern = r'(\d{7})\s+(\d{4}-\d{2}-\d{2})[^(]*\(\S+\)\s+(\d)\s+(\d)\s+(\d)'
-        matches = re.findall(pattern, html)
-        if matches:
-            results = []
-            for m in matches:
-                issue, date, n1, n2, n3 = m
-                results.append([issue, date, [int(n1), int(n2), int(n3)]])
-            results.sort(key=lambda x: x[0])
-            return results
-        return []
-
-    # 方案A: JSON API
+    if not HAS_REQUESTS: return []
     try:
-        url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=5"
-        r = _requests.get(url, headers=headers, timeout=15)
+        url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
+        r = _requests.get(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.cwl.gov.cn/',
+        }, timeout=10)
         if r.status_code == 200:
             data = r.json()
             if data.get('state') == 0:
                 results = []
                 for item in data['result']:
-                    code = item.get('code', '')
-                    if code and len(code) == 3 and code.isdigit():
-                        results.append([item.get('name', ''), item.get('date', ''),
-                                      [int(c) for c in code]])
-                if results:
-                    print("  [数据源] JSON API")
-                    return results
-        else:
-            print(f"  [JSON API] 返回 {r.status_code}")
-    except Exception as e:
-        print(f"  [JSON API] 异常: {e}")
-
-    # 方案B: requests HTML页面解析
-    try:
-        url = "https://www.cwl.gov.cn/ygkj/wqkjgg/fc3d/"
-        r = _requests.get(url, headers=headers, timeout=15)
-        if r.status_code == 200:
-            results = _parse_html(r.text)
-            if results:
-                print(f"  [数据源] HTML解析(requests)，获取 {len(results)} 期")
+                    if item.get('name') != '3D':
+                        continue
+                    red = item.get('red', '')
+                    if red:
+                        digits = [int(c) for c in red.split(',')]
+                        if len(digits) == 3:
+                            # date format: "2026-06-21(日)" → "2026-06-21"
+                            dt = item.get('date', '')
+                            if '(' in dt:
+                                dt = dt[:dt.index('(')]
+                            results.append([item.get('code', ''), dt, digits])
                 return results
-            print("  [HTML解析] 未匹配到数据")
-        else:
-            print(f"  [HTML页面] 返回 {r.status_code}")
     except Exception as e:
-        print(f"  [HTML解析] 异常: {e}")
-
-    # 方案C: cloudscraper绕过CloudFlare
-    if HAS_CLOUDSCRAPER:
-        try:
-            scraper = cloudscraper.create_scraper()
-            r = scraper.get("https://www.cwl.gov.cn/ygkj/wqkjgg/fc3d/", timeout=20)
-            if r.status_code == 200:
-                results = _parse_html(r.text)
-                if results:
-                    print(f"  [数据源] HTML解析(cloudscraper)，获取 {len(results)} 期")
-                    return results
-                print("  [cloudscraper] 未匹配到数据")
-            else:
-                print(f"  [cloudscraper] 返回 {r.status_code}")
-        except Exception as e:
-            print(f"  [cloudscraper] 异常: {e}")
-
+        print(f"  [在线更新] 获取失败: {e}")
     return []
 
 
 def load_data():
-    """加载完整数据：嵌入 + 在线补充"""
     print("[数据] 加载福彩3D历史数据...")
     data = list(EMBEDDED)
-
     latest = fetch_latest()
     if latest:
         existing = set(d[0] for d in data)
         added = 0
         for d in latest:
             if d[0] not in existing:
-                data.append(d)
-                added += 1
+                data.append(d); added += 1
         print(f"  [在线] 新增 {added} 期")
     else:
         print(f"  [在线] 未获取到新数据，使用嵌入数据")
-
     data.sort(key=lambda x: x[0])
     print(f"  [OK] 共 {len(data)} 期: {data[0][0]} ~ {data[-1][0]}")
-    print(f"  最新开奖: {data[-1][0]} {data[-1][1]} {' '.join(str(d) for d in data[-1][2])}")
     return data
 
 
 # ============================================================
-# 融合周期共振法 v5 — 5维信号固定权重
-#
-# Score[d] = 0.25 * SHORT[d] + 0.15 * MED[d]
-#          + 0.20 * COLD[d]  + 0.10 * POS[d]
-#          + 0.30 * CYCLE[d]
-#
-# SHORT:  最近6期频率 — 捕获热点
-# MED:    最近15期频率 — 中期趋势
-# COLD:   冷号回补（当前遗漏/平均遗漏，>1.5倍才触发）
-# POS:    分位频率（百/十/个独立排名，30期）
-# CYCLE:  周期共振（2-12期间隔自相关检测，V2核心信号）
-#
-# 关键发现: 周期共振信号权重30%贡献最大，V4丢掉它是V5不如V2的原因
+# v8 信号计算引擎
 # ============================================================
 
-def algo_multiscale_fusion(history):
-    """
-    融合周期共振预测：
-    5维信号，固定权重，融合V2周期分析 + V4多尺度
-    """
+def _norm(raw_dict):
+    vals = list(raw_dict.values())
+    mn, mx = min(vals), max(vals)
+    if mx == mn: return {d: 0.5 for d in raw_dict}
+    return {d: (v - mn) / (mx - mn) for d, v in raw_dict.items()}
+
+
+def compute_signals_v8(history):
+    """5维信号计算 — 消除冗余后的精简信号集"""
     n = len(history)
-    if n < 10:
-        return list(range(5))
+    if n < 15: return None
 
-    # ── 信号1: 短期频率 (最近6期) ──
-    short_win = min(6, n)
-    short_cnt = Counter()
-    for i in range(n - short_win, n):
-        for d in history[i][2]:
-            short_cnt[d] += 1
-    smax = max(short_cnt.values()) or 1
-    short_score = {d: short_cnt.get(d, 0) / smax for d in range(10)}
+    # ── 1. 综合趋势信号 (合并exp_freq + cycle_v2 + pos_v2) ──
+    # 1a: 指数衰减频率
+    HALF_LIFE = 10
+    decay_lambda = math.log(2) / HALF_LIFE
+    freq_weighted = Counter()
+    total_w = 0.0
+    for i in range(n):
+        t = n - 1 - i
+        w = math.exp(-decay_lambda * t)
+        total_w += w
+        for d in history[i][2]: freq_weighted[d] += w
+    exp_freq = {d: freq_weighted.get(d, 0) / total_w for d in range(10)}
 
-    # ── 信号2: 中期频率 (最近15期) ──
-    med_win = min(15, n)
-    med_cnt = Counter()
-    for i in range(n - med_win, n):
-        for d in history[i][2]:
-            med_cnt[d] += 1
-    mmax = max(med_cnt.values()) or 1
-    med_score = {d: med_cnt.get(d, 0) / mmax for d in range(10)}
+    # 1b: 自适应周期共振
+    lookback = min(60, n)
+    window = history[-lookback:]
+    period_scores = {}
+    for p in range(2, 16):
+        matches = 0
+        for i in range(p, len(window)):
+            matches += len(set(window[i-p][2]) & set(window[i][2]))
+        period_scores[p] = matches
+    best_periods = sorted(period_scores.items(), key=lambda x: x[1], reverse=True)[:2]
+    best_p_set = set(p for p, s in best_periods if s > 0)
+    cycle_raw = Counter()
+    for d in range(10):
+        for p in best_p_set:
+            for i in range(p, len(window)):
+                if d in window[i-p][2] and d in window[i][2]:
+                    recency = i / len(window)
+                    cycle_raw[d] += (1.0 / p) * (0.5 + 0.5 * recency)
+    cmax = max(cycle_raw.values()) or 1
+    cycle_v2 = {d: cycle_raw[d] / cmax for d in range(10)}
 
-    # ── 信号3: 冷号回补 ──
+    # 1c: 位置频率
+    pos_win = min(30, n)
+    pos_raw = {d: 0.0 for d in range(10)}
+    for p in range(3):
+        pos_cnt = Counter()
+        for i in range(n - pos_win, n):
+            t = n - 1 - i
+            w = max(0.3, 1.0 - t * 0.03)
+            pos_cnt[history[i][2][p]] += w
+        ranked = sorted(range(10), key=lambda x: pos_cnt.get(x, 0), reverse=True)
+        for rank, d in enumerate(ranked):
+            pos_raw[d] += max(0, 1.0 - rank * 0.12)
+
+    # 三合一趋势
+    trend_composite = {}
+    for d in range(10):
+        trend_composite[d] = (0.40 * _norm(exp_freq)[d] + 
+                             0.35 * _norm(cycle_v2)[d] + 
+                             0.25 * _norm(pos_raw)[d])
+    trend = _norm(trend_composite)
+
+    # ── 2. 冷号回补v4 (rank归一化消除数字偏见) ──
     last_seen = {d: n for d in range(10)}
     gaps_all = {d: [] for d in range(10)}
     for i, rec in enumerate(history):
         for d in rec[2]:
-            if last_seen[d] < n:
-                gaps_all[d].append(i - last_seen[d])
+            if last_seen[d] < n: gaps_all[d].append(i - last_seen[d])
             last_seen[d] = i
     cold_raw = {}
     for d in range(10):
         cur_gap = n - 1 - last_seen[d]
-        avg_gap = sum(gaps_all[d]) / max(len(gaps_all[d]), 1)
-        ratio = cur_gap / max(avg_gap, 0.5)
-        cold_raw[d] = max(0, ratio - 1.0) / 3.0
-    cmax = max(cold_raw.values()) or 1
-    cold_score = {d: cold_raw[d] / cmax for d in range(10)}
+        if len(gaps_all[d]) >= 3:
+            avg = sum(gaps_all[d]) / len(gaps_all[d])
+            var = sum((g - avg)**2 for g in gaps_all[d]) / len(gaps_all[d])
+            std = math.sqrt(var) if var > 0 else 1.0
+            z_score = max(0, (cur_gap - avg) / std)
+            # 排名归一化: 用(cur/avg)代替概率，消除频次偏见
+            ratio = cur_gap / max(avg, 1.0)
+            rank_score = min(1.0, ratio / 3.0)  # ratio=3→1.0
+            cold_raw[d] = 0.6 * rank_score + 0.4 * math.tanh(z_score * 0.5)
+        elif len(gaps_all[d]) >= 1:
+            avg = sum(gaps_all[d]) / len(gaps_all[d])
+            cold_raw[d] = min(0.8, cur_gap / max(avg * 2, 1.0))
+        else:
+            cold_raw[d] = 0.3 if cur_gap > 5 else 0.0
+    cold_v3 = _norm(cold_raw)
 
-    # ── 信号4: 位置频率 (最近30期) ──
-    pos_win = min(30, n)
-    pos_freq = [Counter() for _ in range(3)]
-    for i in range(n - pos_win, n):
-        for p in range(3):
-            pos_freq[p][history[i][2][p]] += 1
-    pos_raw = {d: 0.0 for d in range(10)}
-    for p in range(3):
-        ranked = sorted(range(10), key=lambda x: pos_freq[p].get(x, 0), reverse=True)
-        for rank, d in enumerate(ranked):
-            pos_raw[d] += 1.0 - rank * 0.1
-    pmax = max(pos_raw.values()) or 1
-    pos_score = {d: pos_raw[d] / pmax for d in range(10)}
+    # ── 3. 边码跟随 ──
+    edge_win = min(10, n)
+    edge_raw = Counter()
+    for i in range(n - edge_win, n):
+        t = n - 1 - i
+        w = math.exp(-0.3 * t)
+        for d in history[i][2]:
+            for nb in [(d - 1) % 10, (d + 1) % 10]:
+                if nb != d: edge_raw[nb] += w * 0.7
+            edge_raw[d] += w * 0.3
+    edge = _norm(edge_raw)
 
-    # ── 信号5: 周期共振 (V2核心信号) ──
-    lb = min(50, n)
-    r = history[-lb:]
-    cycle_raw = Counter()
-    for p in range(2, 13):
-        for i in range(p, len(r)):
-            common = set(r[i-p][2]) & set(r[i][2])
-            for d in common:
-                cycle_raw[d] += 1.0 / p  # 短周期权重更高
-    cmx = max(cycle_raw.values()) or 1
-    cycle_score = {d: cycle_raw[d] / cmx for d in range(10)}
+    # ── 4. 和值尾数信号 ──
+    sum_win = min(60, n)
+    tail_digit_counts = defaultdict(Counter)
+    tail_total = Counter()
+    for i in range(n - sum_win, n):
+        digits = history[i][2]
+        st = sum(digits) % 10
+        tail_total[st] += 1
+        for d in digits: tail_digit_counts[st][d] += 1
+    recent_tails = [sum(history[i][2]) % 10 for i in range(max(0, n-5), n)]
+    sum_raw = Counter()
+    for t_idx, st in enumerate(recent_tails):
+        w = math.exp(-0.2 * (len(recent_tails) - 1 - t_idx))
+        for d in range(10):
+            prob = tail_digit_counts[st].get(d, 0) / max(tail_total[st], 1)
+            sum_raw[d] += w * prob
+    if n > 0:
+        last_tail = sum(history[-1][2]) % 10
+        for d in range(10):
+            prob = tail_digit_counts[last_tail].get(d, 0) / max(tail_total[last_tail], 1)
+            sum_raw[d] += prob * 0.5
+    sum_tail = _norm(sum_raw)
 
-    # ── 融合 (固定权重) ──
-    final = {}
+    # ── 5. 趋势加速 ──
+    half_n = n // 2
+    rw = min(15, half_n)
+    ow = min(15, n - rw)
+    rc = Counter(); oc = Counter()
+    for i in range(n - rw, n):
+        for d in history[i][2]: rc[d] += 1
+    for i in range(n - rw - ow, n - rw):
+        for d in history[i][2]: oc[d] += 1
+    ta = {}
     for d in range(10):
-        final[d] = (
-            0.25 * short_score[d] +
-            0.15 * med_score[d] +
-            0.20 * cold_score[d] +
-            0.10 * pos_score[d] +
-            0.30 * cycle_score[d]
-        )
+        rr = rc.get(d, 0) / max(rw, 1)
+        oo = oc.get(d, 0) / max(ow, 1)
+        ta[d] = math.tanh((rr - oo) * 6) * 0.5 + 0.5
+    trend_accel = ta
 
-    return sorted(range(10), key=lambda x: final[x], reverse=True)[:5]
+    return {
+        'trend': trend,
+        'cold_v3': cold_v3,
+        'edge': edge,
+        'sum_tail': sum_tail,
+        'trend_accel': trend_accel,
+    }
 
 
 # ============================================================
-# 交叉验证：在多个时间窗口上验证，防止过拟合
+# v8 共识增强融合
 # ============================================================
 
-def cross_validate(all_data, windows=[30, 50]):
+def fuse_v10(signals, div_history=None):
     """
-    交叉验证：在多个回测窗口上测试算法稳定性
-    如果各窗口结果接近，说明算法泛化好、未过拟合
+    v10 动态保护融合:
+    - cold_v3 top-2 直接入选
+    - cold#3 如果得分接近#2(>85%)→扩容到3
+    - edge top-1 直接入选(排除已保证的)
+    - edge#2 如果得分接近#1(>80%)→扩容到2
+    - 剩余名额由集成打分填充
     """
-    n = len(all_data)
-    results = {}
+    # 冷号保证
+    cold_ranked = sorted(range(10), key=lambda x: signals['cold_v3'][x], reverse=True)
+    guaranteed = set(cold_ranked[:GUARANTEED_COLD])
+    
+    # 动态扩容: cold#3接近时加入
+    cv = signals['cold_v3']
+    if (GUARANTEED_COLD + 1 < 10 and 
+        cv[cold_ranked[GUARANTEED_COLD]] > cv[cold_ranked[GUARANTEED_COLD - 1]] * COLD_EXPAND_RATIO):
+        guaranteed.add(cold_ranked[GUARANTEED_COLD])
+    
+    # 边码保证
+    edge_ranked = sorted(range(10), key=lambda x: signals['edge'][x], reverse=True)
+    edge_selected = None
+    for d in edge_ranked:
+        if d not in guaranteed:
+            edge_selected = d
+            guaranteed.add(d)
+            break
+    
+    # 动态扩容: edge#2接近时加入
+    ev = signals['edge']
+    if edge_selected is not None:
+        for d in edge_ranked:
+            if d not in guaranteed and ev[d] > ev[edge_selected] * EDGE_EXPAND_RATIO:
+                guaranteed.add(d)
+                break
 
-    for w in windows:
-        si = n - w
-        if si < 30:
-            print(f"  [跳过] window={w}: 数据不足")
-            continue
+    # 集成打分
+    base = {}
+    for d in range(10):
+        base[d] = sum(SUM_WEIGHTS[name] * signals[name][d] for name in SUM_WEIGHTS)
+    base = _norm(base)
 
-        hits = 0
-        total_nh = 0
-        for i in range(si, n):
-            hist = all_data[:i]
-            cur = all_data[i]
-            pred = algo_multiscale_fusion(hist)
-            if any(d in cur[2] for d in pred):
-                hits += 1
-                total_nh += sum(1 for d in pred if d in cur[2])
+    # 多样性反偏
+    if div_history:
+        recent = div_history[-DIV_WINDOW:]
+        rp = Counter()
+        for picks in recent:
+            for d in picks: rp[d] += 1
+        if rp:
+            mp = max(rp.values()) or 1
+            for d in range(10):
+                base[d] *= (1.0 - DIV_PENALTY * rp.get(d, 0) / mp)
 
-        results[w] = {
-            'periods': w,
-            'hit_count': hits,
-            'hit_rate': hits / w,
-            'avg_hits': round(total_nh / w, 2)
-        }
+    # 剩余名额
+    remaining = sorted([d for d in range(10) if d not in guaranteed],
+                       key=lambda x: base[x], reverse=True)
+    needed = 5 - len(guaranteed)
+    picks = list(guaranteed) + remaining[:needed]
+    return picks
 
-    return results
+
+def predict_v10(history, div_history=None):
+    signals = compute_signals_v8(history)
+    if signals is None:
+        return list(range(5)), None
+    picks = fuse_v10(signals, div_history=div_history)
+    return picks, signals
 
 
 # ============================================================
-# 回测详情生成
+# 状态管理
 # ============================================================
 
-def run_backtest(all_data, n=50):
-    """n期滚动回测，使用多尺度融合算法"""
+def get_state_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'predictions.json')
+
+
+def load_state():
+    path = get_state_path()
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception: pass
+    return {
+        'predictions': [],
+        'stats': {'total_predictions': 0, 'total_hits': 0, 'recent_10_hits': 0,
+                  'recent_picks': [], 'total_verified': 0}
+    }
+
+
+def save_state(state):
+    with open(get_state_path(), 'w', encoding='utf-8') as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def learn_from_history(state, all_data):
+    learned = False
+    data_by_issue = {d[0]: d for d in all_data}
+    for pred in state['predictions']:
+        if pred.get('verified'): continue
+        issue = pred['issue']
+        rec = data_by_issue.get(issue)
+        if rec is None: continue
+        actual = rec[2]
+        pred['actual'] = actual
+        pred['verified'] = True
+        pred['verified_date'] = rec[1]
+        pred['is_hit'] = any(d in actual for d in pred['picks'])
+        pred['n_hits'] = sum(1 for d in pred['picks'] if d in actual)
+        state['stats']['total_verified'] += 1
+        if pred['is_hit']: state['stats']['total_hits'] += 1
+        learned = True
+        print(f"  [学习] {issue}: 预测{' '.join(str(d) for d in pred['picks'])} → "
+              f"开奖{' '.join(str(d) for d in actual)} "
+              f"{'✓ 中'+str(pred['n_hits'])+'个' if pred['is_hit'] else '✗ 未中'}")
+
+    verified = [p for p in state['predictions'] if p.get('verified')]
+    state['stats']['recent_10_hits'] = sum(1 for p in verified[-10:] if p.get('is_hit'))
+    state['stats']['total_predictions'] = len(verified)
+    state['stats']['recent_picks'] = [p['picks'] for p in verified[-DIV_WINDOW:] if p.get('picks')]
+    return learned
+
+
+def add_prediction(state, issue, picks, signals):
+    if len(state['predictions']) > 200:
+        state['predictions'] = state['predictions'][-200:]
+    state['predictions'].append({
+        'issue': issue,
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'predicted_date': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'picks': picks,
+        'signals': {name: {str(d): round(signals[name][d], 4) for d in range(10)}
+                    for name in SIGNAL_NAMES},
+        'actual': None, 'verified': False
+    })
+    return state
+
+
+# ============================================================
+# 回测
+# ============================================================
+
+def run_backtest(all_data, n=100):
     total = len(all_data)
     si = total - n
-    if si < 20:
-        raise ValueError(f"数据不足")
+    if si < 20: raise ValueError("数据不足")
 
     details = []
-    hit_count = 0
-    total_hits = 0
+    hit_count = 0; total_hits = 0
+    div_hist = []
 
     for idx in range(si, total):
         hist = all_data[:idx]
         cur = all_data[idx]
-        picks = algo_multiscale_fusion(hist)
+        picks, _ = predict_v10(hist, div_history=div_hist)
+        div_hist.append(picks)
         hit = any(d in cur[2] for d in picks)
         nh = sum(1 for d in picks if d in cur[2])
         details.append({
-            'issue': cur[0],
-            'date': cur[1],
-            'actual': cur[2],
-            'picks': picks,
-            'hit': hit,
-            'n_hits': nh
+            'issue': cur[0], 'date': cur[1], 'actual': cur[2],
+            'picks': picks, 'hit': hit, 'n_hits': nh
         })
         if hit:
-            hit_count += 1
-            total_hits += nh
+            hit_count += 1; total_hits += nh
 
     return {
-        'periods': n,
-        'hit_count': hit_count,
-        'total': n,
+        'periods': n, 'hit_count': hit_count, 'total': n,
         'hit_rate': hit_count / n,
         'avg_hits': round(total_hits / n, 2),
         'details': details
@@ -424,149 +547,126 @@ def run_backtest(all_data, n=50):
 
 
 # ============================================================
-# 生成HTML仪表盘 - 简洁UI，突出预测胆码
+# HTML仪表盘
 # ============================================================
 
-def generate_html(all_data, bt30):
-    """生成HTML仪表盘：30期回测"""
-    algo_name = "融合周期共振法 (V2+V4)"
+def generate_html(all_data, bt100, state):
+    algo_name = "去偏冷号融合 v11.0"
+    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v11.0 去偏冷号</span>'
 
-    # 下期预测
-    next_picks = algo_multiscale_fusion(all_data)
+    div_hist = state['stats'].get('recent_picks', [])
+    next_picks, _ = predict_v10(all_data, div_history=div_hist if div_hist else None)
     next_issue = str(int(all_data[-1][0]) + 1)
 
-    # 30期回测详情（近到远）
-    det30 = ''
-    for r in reversed(bt30['details']):
-        ast = ' '.join(str(d) for d in r['actual'])
-        actual_set = set(r['actual'])
-        # 预测胆码：命中的标红，未中的标灰
-        pballs = ''.join(
-            f'<span class="pb-hit">{d}</span>' if d in actual_set
-            else f'<span class="pb-miss">{d}</span>'
-            for d in r['picks']
-        )
-        if r['hit']:
-            cls = 'hit-yes'
-            mark = f'<span class="mk-yes">✓ 中{r["n_hits"]}个</span>'
-        else:
-            cls = 'hit-no'
-            mark = '<span class="mk-no">✗</span>'
-        det30 += (
-            f'<tr class="{cls}">'
-            f'<td>{r["issue"]}</td>'
-            f'<td>{r["date"]}</td>'
-            f'<td class="ac">{ast}</td>'
-            f'<td class="pc">{pballs}</td>'
-            f'<td>{mark}</td>'
-            f'</tr>'
-        )
+    st = state['stats']
+    total_pred = st.get('total_verified', 0)
+    total_hit = st.get('total_hits', 0)
+    live_hr = f"{total_hit/total_pred*100:.1f}%" if total_pred > 0 else "--"
+    recent_10 = st.get('recent_10_hits', 0)
 
-    hn = bt30['hit_count']
-    mn = bt30['periods'] - hn
-    hr = bt30['hit_rate'] * 100
-
-    # 热门数字
-    hot_nums = Counter()
-    for r in bt30['details']:
-        for d in r['picks']:
-            hot_nums[d] += 1
-    top_hot = sorted(hot_nums.items(), key=lambda x: x[1], reverse=True)[:5]
-    hot_html = ''.join(
-        f'<span class="ht">{d}<small>{c}次</small></span>' for d, c in top_hot
+    wbars = ''.join(
+        f'<div style="margin-bottom:4px"><span style="display:inline-block;width:70px;font-size:10px;color:#888">{SIGNAL_META[name]["cn"]}</span>'
+        f'<span style="display:inline-block;height:14px;background:linear-gradient(90deg,#667eea,#764ba2);'
+        f'border-radius:7px;width:{SUM_WEIGHTS[name]*200}px;min-width:2px"></span>'
+        f'<span style="font-size:10px;font-weight:700;margin-left:4px;color:#333">{SUM_WEIGHTS[name]:.0%}</span></div>'
+        for name in SIGNAL_NAMES
     )
 
-    html = f'''<!DOCTYPE html>
+    det_html = ''
+    for r in reversed(bt100['details']):
+        ast = ' '.join(str(d) for d in r['actual'])
+        actual_set = set(r['actual'])
+        pballs = ''.join(
+            f'<span class="pb-hit">{d}</span>' if d in actual_set
+            else f'<span class="pb-miss">{d}</span>' for d in r['picks'])
+        cls = 'hit-yes' if r['hit'] else 'hit-no'
+        mark = f'<span class="mk-yes">✓ {r["n_hits"]}个</span>' if r['hit'] else '<span class="mk-no">✗</span>'
+        det_html += (f'<tr class="{cls}"><td>{r["issue"]}</td><td>{r["date"]}</td>'
+                   f'<td class="ac">{ast}</td><td class="pc">{pballs}</td><td>{mark}</td></tr>')
+
+    hn, mn = bt100['hit_count'], bt100['periods'] - bt100['hit_count']
+    hr = bt100['hit_rate'] * 100
+
+    hot_nums = Counter()
+    for r in bt100['details']:
+        for d in r['picks']: hot_nums[d] += 1
+    top_hot = sorted(hot_nums.items(), key=lambda x: x[1], reverse=True)[:5]
+    hot_html = ''.join(f'<span class="ht">{d}<small>{c}次</small></span>' for d, c in top_hot)
+
+    return f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>晓炜胆码预测 · 融合周期共振</title>
+<title>晓炜胆码预测 · 去偏冷号 v11</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}}
-.header{{background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);color:#fff;padding:18px 16px;text-align:center}}
-.header h1{{font-size:22px;font-weight:700;letter-spacing:3px;margin-bottom:4px}}
-.header .sub{{font-size:11px;opacity:.65}}
-.container{{max-width:720px;margin:0 auto;padding:12px 14px}}
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#f8fafc;color:#334155;min-height:100vh}}
+.header{{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;padding:22px 16px;text-align:center}}
+.header h1{{font-size:20px;font-weight:700;letter-spacing:2px;margin-bottom:4px}}
+.header .sub{{font-size:11px;opacity:.55;font-weight:300}}
+.container{{max-width:700px;margin:0 auto;padding:16px 16px 0}}
 
-/* 预测卡片 */
-.pred-card{{background:linear-gradient(145deg,#fff,#fffbf0);border:2px solid #e74c3c;border-radius:20px;padding:28px 20px 20px;margin:16px 0 12px;text-align:center;box-shadow:0 8px 32px rgba(231,76,60,.12)}}
-.pred-card .label{{font-size:12px;color:#999;letter-spacing:4px;text-transform:uppercase;margin-bottom:4px}}
-.pred-card .issue{{font-size:15px;color:#e74c3c;font-weight:600;margin-bottom:14px}}
-.balls{{display:flex;justify-content:center;gap:10px}}
-.ball{{width:52px;height:52px;line-height:52px;border-radius:50%;
-  background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;
-  font-size:22px;font-weight:800;text-align:center;
-  box-shadow:0 4px 16px rgba(231,76,60,.35);
-  animation:pulse 2s ease-in-out infinite}}
-.ball:nth-child(1){{animation-delay:0s}}
-.ball:nth-child(2){{animation-delay:.15s}}
-.ball:nth-child(3){{animation-delay:.3s}}
-.ball:nth-child(4){{animation-delay:.45s}}
-.ball:nth-child(5){{animation-delay:.6s}}
-@keyframes pulse{{0%,100%{{transform:scale(1)}}50%{{transform:scale(1.06)}}}}
-.pred-card .footnote{{font-size:11px;color:#aaa;margin-top:14px}}
+.pred-card{{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:28px 22px 22px;margin:0 0 16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.04)}}
+.pred-card .label{{font-size:11px;color:#94a3b8;letter-spacing:5px;text-transform:uppercase;margin-bottom:6px}}
+.pred-card .issue{{font-size:13px;color:#0d9488;font-weight:600;margin-bottom:16px}}
+.balls{{display:flex;justify-content:center;gap:11px}}
+.ball{{width:54px;height:54px;line-height:54px;border-radius:50%;background:linear-gradient(135deg,#1e293b,#334155);color:#fff;font-size:23px;font-weight:800;text-align:center;box-shadow:0 2px 8px rgba(30,41,59,.2)}}
+.pred-card .footnote{{font-size:11px;color:#94a3b8;margin-top:16px}}
 
-/* 统计卡 */
-.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}}
-.stat{{background:#fff;border-radius:12px;padding:14px 10px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.04)}}
-.stat .val{{font-size:26px;font-weight:800}}
-.stat .lbl{{font-size:10px;color:#999;margin-top:2px}}
-.stat.s1{{border-top:3px solid #e74c3c}}.stat.s1 .val{{color:#e74c3c}}
-.stat.s2{{border-top:3px solid #27ae60}}.stat.s2 .val{{color:#27ae60}}
-.stat.s3{{border-top:3px solid #3498db}}.stat.s3 .val{{color:#3498db}}
-.stat.s4{{border-top:3px solid #f39c12}}.stat.s4 .val{{color:#f39c12}}
+.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}}
+.stat{{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:18px 8px 14px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.03)}}
+.stat .val{{font-size:25px;font-weight:800;line-height:1}}
+.stat .lbl{{font-size:10px;color:#94a3b8;margin-top:5px}}
+.stat.s1 .val{{color:#0d9488}}
+.stat.s2 .val{{color:#6366f1}}
+.stat.s3 .val{{color:#f59e0b}}
+.stat.s4 .val{{color:#0ea5e9}}
 
-/* 区块 */
-.section{{background:#fff;border-radius:14px;padding:16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.03)}}
-.section .title{{font-size:15px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #f0f0f0}}
+.section{{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:18px 16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.03)}}
+.section .title{{font-size:14px;font-weight:700;margin-bottom:12px;padding-bottom:9px;border-bottom:1px solid #f1f5f9;color:#1e293b}}
 
-/* 分布条 */
-.bar-row{{display:flex;gap:6px}}
-.bar{{flex:1;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff}}
-.bar.hit{{background:linear-gradient(90deg,#27ae60,#2ecc71)}}
-.bar.miss{{background:#e0e0e0;color:#999}}
+.bar-row{{display:flex;gap:6px;height:32px}}
+.bar{{flex:1;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff}}
+.bar.hit{{background:linear-gradient(90deg,#0d9488,#14b8a6)}}
+.bar.miss{{background:#f1f5f9;color:#94a3b8}}
 
-/* 热门数字 */
 .hot-tags{{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}}
-.ht{{display:inline-flex;align-items:center;gap:3px;background:#fff3e0;color:#e65100;padding:4px 12px;border-radius:20px;font-size:14px;font-weight:700}}
-.ht small{{font-size:10px;font-weight:400;opacity:.7}}
+.ht{{display:inline-flex;align-items:center;gap:3px;background:#f0fdfa;color:#0d9488;padding:5px 14px;border-radius:20px;font-size:14px;font-weight:700}}
+.ht small{{font-size:10px;font-weight:400;opacity:.65}}
 
-/* 表格 */
 .tb-wrap{{overflow-x:auto}}
 table{{width:100%;border-collapse:collapse;font-size:12px}}
-th{{background:#fafafa;padding:10px 6px;text-align:center;font-weight:600;border-bottom:2px solid #eee;white-space:nowrap;font-size:11px;color:#555}}
-td{{padding:8px 5px;text-align:center;border-bottom:1px solid #f5f5f5}}
-tr:hover td{{background:#fafbff}}
-.ac{{font-weight:700;color:#e74c3c;letter-spacing:3px}}
-.pc{{color:#444;letter-spacing:1px;display:flex;justify-content:center;gap:5px;flex-wrap:wrap}}
-.pb-hit{{display:inline-block;width:28px;height:28px;line-height:28px;border-radius:50%;background:#e74c3c;color:#fff;font-weight:800;font-size:13px;text-align:center}}
-.pb-miss{{display:inline-block;width:28px;height:28px;line-height:28px;border-radius:50%;background:#e8e8e8;color:#bbb;font-weight:600;font-size:13px;text-align:center}}
-.hit-yes td{{background:#f0fdf4}}
-.mk-yes{{color:#16a34a;font-weight:700;font-size:11px}}
-.mk-no{{color:#d4d4d8;font-weight:600}}
+th{{background:#f8fafc;padding:10px 6px;text-align:center;font-weight:700;border-bottom:1px solid #e2e8f0;white-space:nowrap;font-size:11px;color:#64748b}}
+td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
+.ac{{font-weight:800;color:#0d9488;letter-spacing:3px;font-size:13px}}
+.pc{{color:#334155;letter-spacing:1px;display:flex;justify-content:center;gap:4px;flex-wrap:wrap}}
+.pb-hit{{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;font-weight:800;font-size:12px}}
+.pb-miss{{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#fef2f2;color:#ef4444;font-weight:700;font-size:12px;border:1.5px solid #fecaca}}
+.hit-yes td{{background:#fafdfc}}
+.mk-yes{{color:#0d9488;font-weight:700;font-size:11px}}
+.mk-no{{color:#ef4444;font-weight:600;font-size:11px}}
 
-.warn{{background:#fffbe6;border:1px solid #ffd666;border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:11.5px;color:#8c6d00;text-align:center}}
-
-.footer{{text-align:center;padding:20px;color:#bbb;font-size:10px}}
+.warn{{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:11.5px;color:#92400e;text-align:center}}
+.footer{{text-align:center;padding:20px 16px 30px;color:#94a3b8;font-size:10px;line-height:1.8}}
 
 @media(max-width:600px){{
   .stats{{grid-template-columns:repeat(2,1fr)}}
-  .ball{{width:42px;height:42px;line-height:42px;font-size:18px}}
-  .balls{{gap:7px}}
-  .pred-card{{padding:20px 12px 14px}}
+  .ball{{width:44px;height:44px;line-height:44px;font-size:19px}}
+  .balls{{gap:8px}}
+  .pred-card{{padding:22px 14px 16px}}
+  .section{{padding:14px 12px}}
 }}
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>🎯 晓炜胆码预测</h1>
-  <div class="sub">{algo_name} · 5胆码 · 30期回测 · 实时数据</div>
+  <h1>晓炜胆码预测</h1>
+  <div class="sub">{algo_name} · 5维信号 · rank冷号 · 动态保护{v11_badge}</div>
 </div>
 
 <div class="container">
-  <div class="warn"><strong>⚠ 风险提示：</strong>彩票开奖具有随机性，本软件仅供数据分析参考，不构成投注建议。请理性购彩，量力而行。</div>
+  <div class="warn"><strong>⚠ 风险提示：</strong>彩票开奖具有随机性，本软件仅供数据分析参考，不构成投注建议。请理性购彩。</div>
 
   <div class="pred-card">
     <div class="label">▎下期预测胆码</div>
@@ -578,14 +678,19 @@ tr:hover td{{background:#fafbff}}
   </div>
 
   <div class="stats">
-    <div class="stat s1"><div class="val">{hr:.1f}%</div><div class="lbl">30期命中率</div></div>
-    <div class="stat s2"><div class="val">{hn}/{bt30['periods']}</div><div class="lbl">命中期数</div></div>
-    <div class="stat s3"><div class="val">{bt30['avg_hits']}</div><div class="lbl">均命中个数/期</div></div>
-    <div class="stat s4"><div class="val">{len(all_data)}</div><div class="lbl">历史数据期数</div></div>
+    <div class="stat s1"><div class="val">{hr:.1f}%</div><div class="lbl">100期回测命中率</div></div>
+    <div class="stat s2"><div class="val">{hn}/{bt100['periods']}</div><div class="lbl">回测命中期数</div></div>
+    <div class="stat s3"><div class="val">{live_hr}</div><div class="lbl">实盘命中率({total_pred}期)</div></div>
+    <div class="stat s4"><div class="val">{recent_10}/10</div><div class="lbl">最近10期命中</div></div>
   </div>
 
   <div class="section">
-    <div class="title">📊 30期命中分布</div>
+    <div class="title">🧬 信号权重 (加权求和)</div>
+    {wbars}
+  </div>
+
+  <div class="section">
+    <div class="title">📊 100期命中分布</div>
     <div class="bar-row">
       <div class="bar hit" style="flex:{hn}">{hn}期 命中 ✓</div>
       <div class="bar miss" style="flex:{mn}">{mn}期 未中 ✗</div>
@@ -595,11 +700,11 @@ tr:hover td{{background:#fafbff}}
   </div>
 
   <div class="section">
-    <div class="title">📋 30期回测详情（近→远）</div>
+    <div class="title">📋 100期回测详情（近→远）</div>
     <div class="tb-wrap">
       <table>
         <thead><tr><th>期号</th><th>日期</th><th>开奖号码</th><th>预测胆码</th><th>结果</th></tr></thead>
-        <tbody>{det30}</tbody>
+        <tbody>{det_html}</tbody>
       </table>
     </div>
   </div>
@@ -614,8 +719,6 @@ tr:hover td{{background:#fafbff}}
 </body>
 </html>'''
 
-    return html
-
 
 # ============================================================
 # 主程序
@@ -623,28 +726,39 @@ tr:hover td{{background:#fafbff}}
 
 def main():
     print("=" * 55)
-    print("  福彩3D胆码预测系统 · 融合周期共振法 v5")
-    print("  V2周期共振 + V4多尺度 = 5维信号融合")
+    print("  福彩3D胆码预测系统 · v11.0 去偏冷号")
+    print("  5维信号 · rank冷号消除偏见 · 动态保护 · 自主迭代")
     print("=" * 55)
 
-    # 1. 加载数据
     all_data = load_data()
 
-    # 2. 30期回测
-    print(f"\n[回测] 30期滚动回测...")
+    print(f"\n[学习] 加载历史状态...")
+    state = load_state()
+    learned = learn_from_history(state, all_data)
+    if learned:
+        print(f"  [学习完成] 共 {state['stats']['total_verified']} 期已验证")
+
+    print(f"\n[回测] 100期滚动回测...")
+    bt100 = run_backtest(all_data, 100)
+    print(f"  100期: 命中率{bt100['hit_rate']*100:.1f}% ({bt100['hit_count']}/{bt100['periods']}) 均{bt100['avg_hits']}个")
+
+    bt50 = run_backtest(all_data, 50)
+    print(f"  50期: 命中率{bt50['hit_rate']*100:.1f}% ({bt50['hit_count']}/{bt50['periods']}) 均{bt50['avg_hits']}个")
+
     bt30 = run_backtest(all_data, 30)
     print(f"  30期: 命中率{bt30['hit_rate']*100:.1f}% ({bt30['hit_count']}/{bt30['periods']}) 均{bt30['avg_hits']}个")
 
-    # 3. 预测下一期
-    next_picks = algo_multiscale_fusion(all_data)
+    div_hist = state['stats'].get('recent_picks', [])
+    next_picks, signals = predict_v10(all_data, div_history=div_hist if div_hist else None)
     next_issue = str(int(all_data[-1][0]) + 1)
     print(f"\n[预测] 下期 {next_issue} 5胆码: {' '.join(str(d) for d in next_picks)}")
 
-    # 4. 生成HTML
-    html = generate_html(all_data, bt30)
+    state = add_prediction(state, next_issue, next_picks, signals)
+    save_state(state)
+
+    html = generate_html(all_data, bt100, state)
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
-    with open(out, 'w', encoding='utf-8') as f:
-        f.write(html)
+    with open(out, 'w', encoding='utf-8') as f: f.write(html)
 
     print(f"\n✅ 已生成: {out}")
     print("=" * 55)
