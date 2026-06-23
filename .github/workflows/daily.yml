@@ -4,7 +4,9 @@ on:
   push:
     branches: [master]
   schedule:
-    - cron: '0 14 * * *'
+    - cron: '0 14 * * *'   # UTC 14:00 = 北京时间 22:00 (主)
+    - cron: '30 15 * * *'  # UTC 15:30 = 北京时间 23:30 (备份1)
+    - cron: '0 17 * * *'   # UTC 17:00 = 北京时间 01:00 (备份2)
   workflow_dispatch:
 
 permissions:
