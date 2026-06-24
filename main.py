@@ -840,6 +840,10 @@ def learn_from_history(state, all_data):
 
 
 def add_prediction(state, issue, picks, signals):
+    # 去重：如果已有同号未验证预测，跳过
+    for p in state['predictions']:
+        if p['issue'] == issue and not p.get('verified'):
+            return state
     if len(state['predictions']) > 200:
         state['predictions'] = state['predictions'][-200:]
     state['predictions'].append({
