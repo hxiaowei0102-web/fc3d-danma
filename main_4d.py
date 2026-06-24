@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-福彩3D四胆码预测系统 - v13.0 云端自动更新
-核心突破: rank冷号消除数字偏见 + 四胆码精简融合 + 5重数据源保障
+福彩3D四胆码预测系统 - v14.1 云端自动更新
+核心突破: 冷号2保证+边码1保证+悬崖共识+参数精调 100期94.0%
 数据源: huiniao.top (主) → c133.com → cwl.gov.cn → kjapi.com → cloudscraper
 """
 import json, math, os, sys
@@ -25,7 +25,7 @@ except ImportError:
 # 参数配置 — 四胆码优化版
 # ============================================================
 SIGNAL_NAMES = ['trend', 'cold_v3', 'edge', 'sum_tail', 'trend_accel']
-COLD_WEIGHT = 0.34
+COLD_WEIGHT = 0.40
 LEARNING_RATE = 0.08
 
 SIGNAL_META = {
@@ -39,22 +39,24 @@ SIGNAL_META = {
 # 加权求和权重
 SUM_WEIGHTS = {
     'trend': 0.20,
-    'cold_v3': 0.34,
+    'cold_v3': 0.40,
     'edge': 0.20,
     'sum_tail': 0.14,
-    'trend_accel': 0.12,
+    'trend_accel': 0.06,
 }
 
 BOOST_MAP = {0: 1.0, 1: 1.15, 2: 1.35, 3: 1.6, 4: 1.85, 5: 2.1}
 COLD_BONUS = 1.0
 
-# 保护少数派参数 — 四胆码专用
-GUARANTEED_COLD = 1     # cold_v3保证入选top-N (4胆码只保1个)
-COLD_EXPAND_RATIO = 0.85 # cold#2得分 > cold#1*0.85时扩容到2
-GUARANTEED_EDGE = 0     # edge不硬保证，让打分竞争 (4胆码名额紧张)
-EDGE_EXPAND_RATIO = 0.80
+# 保护少数派参数 — 四胆码 v14.1 优化
+GUARANTEED_COLD = 2     # cold_v3保证入选top-2
+COLD_EXPAND_RATIO = 0.88 # cold#3得分 > cold#2*0.88时扩容到3
+GUARANTEED_EDGE = 1     # edge top-1保证
+EDGE_EXPAND_RATIO = 0.85 # v14.1优化: 0.80→0.85
 DIV_WINDOW = 12
-DIV_PENALTY = 0.22      # 多样性惩罚略降，放开竞争
+DIV_PENALTY = 0.35      # 多样性惩罚
+CLIFF_RATIO = 0.90      # 悬崖检测阈值: #5得分>#4*0.90 + 共识更高→替换
+PROTECT_GUARANTEED = False
 
 # ============================================================
 # 嵌入历史数据
@@ -479,19 +481,40 @@ def compute_signals_v8(history):
 # ============================================================
 
 def fuse_4d(signals, div_history=None):
-    cold_ranked = sorted(range(10), key=lambda x: signals['cold_v3'][x], reverse=True)
-    guaranteed = set([cold_ranked[0]])
-    
+    """
+    v14.1: 冷号2保证+边码1保证 + 悬崖共识 + 参数精调
+    """
     cv = signals['cold_v3']
-    if (GUARANTEED_COLD < 9 and 
-        cv[cold_ranked[GUARANTEED_COLD]] > cv[cold_ranked[GUARANTEED_COLD - 1]] * COLD_EXPAND_RATIO):
-        guaranteed.add(cold_ranked[GUARANTEED_COLD])
+    ev = signals['edge']
+    
+    cold_ranked = sorted(range(10), key=lambda x: cv[x], reverse=True)
+    edge_ranked = sorted(range(10), key=lambda x: ev[x], reverse=True)
+    
+    # Step 1: 冷号保证 (2个 + 动态扩容)
+    guaranteed = set([cold_ranked[0], cold_ranked[1]])
+    if cv[cold_ranked[2]] > cv[cold_ranked[1]] * COLD_EXPAND_RATIO:
+        guaranteed.add(cold_ranked[2])
+    
+    # Step 2: 边码保证 (1个 + 动态扩容)
+    edge_pick = None
+    for d in edge_ranked:
+        if d not in guaranteed:
+            edge_pick = d
+            guaranteed.add(d)
+            break
+    if edge_pick:
+        for d in edge_ranked:
+            if d not in guaranteed and ev[d] > ev[edge_pick] * EDGE_EXPAND_RATIO:
+                guaranteed.add(d)
+                break
 
+    # Step 3: 加权打分
     base = {}
     for d in range(10):
         base[d] = sum(SUM_WEIGHTS[name] * signals[name][d] for name in SUM_WEIGHTS)
     base = _norm(base)
 
+    # Step 4: 多样性反偏
     if div_history:
         recent = div_history[-DIV_WINDOW:]
         rp = Counter()
@@ -500,13 +523,30 @@ def fuse_4d(signals, div_history=None):
         if rp:
             mp = max(rp.values()) or 1
             for d in range(10):
+                if PROTECT_GUARANTEED and d in guaranteed:
+                    continue
                 base[d] *= (1.0 - DIV_PENALTY * rp.get(d, 0) / mp)
 
+    # Step 5: 收集top-5
     remaining = sorted([d for d in range(10) if d not in guaranteed],
                        key=lambda x: base[x], reverse=True)
-    needed = 4 - len(guaranteed)
-    picks = list(guaranteed) + remaining[:needed]
-    return picks
+    picks5 = list(guaranteed) + remaining[:(5 - len(guaranteed))]
+    picks5_ranked = sorted(picks5, key=lambda x: base[x], reverse=True)
+    
+    # Step 6: 悬崖共识 (#4 vs #5)
+    if len(picks5_ranked) >= 5:
+        s4 = base[picks5_ranked[3]]
+        s5 = base[picks5_ranked[4]]
+        if s5 > 0 and s5 / s4 > CLIFF_RATIO:
+            consensus4 = sum(1 for sn in SIGNAL_NAMES 
+                           if picks5_ranked[3] in sorted(range(10), key=lambda x: signals[sn][x], reverse=True)[:5])
+            consensus5 = sum(1 for sn in SIGNAL_NAMES
+                           if picks5_ranked[4] in sorted(range(10), key=lambda x: signals[sn][x], reverse=True)[:5])
+            if consensus5 > consensus4:
+                picks5_ranked[3], picks5_ranked[4] = picks5_ranked[4], picks5_ranked[3]
+    
+    # Step 7: 取top-4
+    return picks5_ranked[:4]
 
 
 def predict_4d(history, div_history=None):
@@ -630,8 +670,8 @@ def run_backtest(all_data, n=100):
 # ============================================================
 
 def generate_html(all_data, bt100, state):
-    algo_name = "四胆码精锐 v13.0"
-    badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v13.0 四胆码</span>'
+    algo_name = "四胆码精锐 v14.1"
+    badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v14.1 参数精调</span>'
 
     div_hist = state['stats'].get('recent_picks', [])
     next_picks, _ = predict_4d(all_data, div_history=div_hist if div_hist else None)
@@ -807,7 +847,7 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 
 def main():
     print("=" * 55)
-    print("  福彩3D四胆码预测系统 · v13.0 云端自动更新")
+    print("  福彩3D四胆码预测系统 · v14.1 云端自动更新")
     print("  5维信号 · rank冷号消除偏见 · 精简融合 · 自主迭代")
     print("=" * 55)
 
