@@ -76,7 +76,8 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",
 .pred-head .badge{{font-size:10px;font-weight:700;padding:4px 10px;border-radius:12px;letter-spacing:1px}}
 .badge.orange{{background:#fff3e0;color:#e65100}}
 .badge.blue{{background:#e3f2fd;color:#1565c0}}
-.pred-head .issue{{font-size:11px;color:#94a3b8}}
+.pred-head .issue{{font-size:15px;font-weight:800;color:#1e293b;letter-spacing:1px}}
+.pred-head .issue span{{color:#e65100}}
 .pred-body{{text-align:center;padding:4px 16px 18px}}
 .pred-body .balls{{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}}
 .pred-body .ball{{width:50px;height:50px;line-height:50px;border-radius:50%;font-size:22px;font-weight:800;color:#fff;text-align:center;box-shadow:0 3px 10px rgba(0,0,0,.12)}}
@@ -102,7 +103,7 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",
 <div class="pred-section">
 <div class="pred-head">
 <span class="badge orange">五胆码 v12.0</span>
-<span class="issue">下期 {issue}</span>
+<span class="issue">下期 <span>{issue}</span></span>
 </div>
 <div class="pred-body">
 <div class="balls">{balls5}</div>
@@ -119,7 +120,7 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",
 <div class="pred-section">
 <div class="pred-head">
 <span class="badge blue">四胆码 v14.1</span>
-<span class="issue">下期 {issue}</span>
+<span class="issue">下期 <span>{issue}</span></span>
 </div>
 <div class="pred-body">
 <div class="balls">{balls4}</div>
