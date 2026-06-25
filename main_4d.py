@@ -290,25 +290,36 @@ def _fetch_cloudscraper():
 
 
 def fetch_latest():
-    """多源获取最新开奖数据 — 5重保障, 自动降级"""
-    results = _fetch_huiniao(30)
-    if results: return results
+    """多源获取最新开奖数据 — 5重保障, 自动降级 (v12.1 源1=cwl, 2026-06-25调整)"""
+    import time
+    t0 = time.time()
+    source_used = "none"
     
-    results = _fetch_c133()
-    if results: return results
-    
+    # 源1: cwl.gov.cn requests — 最稳定的数据源，唯一经实测可用 (2026-06-25)
     if HAS_REQUESTS:
         results = _fetch_cwl_requests()
-        if results: return results
+        if results: source_used = "cwl.gov.cn(requests)"; return results
     
-    if HAS_REQUESTS:
-        results = _fetch_kjapi()
-        if results: return results
-    
+    # 源2: cloudscraper — cwl.gov.cn备用通道
     if HAS_SCRAPER:
         results = _fetch_cloudscraper()
-        if results: return results
+        if results: source_used = "cloudscraper(cwl)"; return results
     
+    # 源3: api.huiniao.top (2026-06-25: 404, 已挂)
+    results = _fetch_huiniao(30)
+    if results: source_used = "huiniao.top"; return results
+    
+    # 源4: c133.com (2026-06-25: 拒绝连接, 已挂)
+    results = _fetch_c133()
+    if results: source_used = "c133.com"; return results
+    
+    # 源5: kjapi.com (2026-06-25: 404, 已挂)
+    if HAS_REQUESTS:
+        results = _fetch_kjapi()
+        if results: source_used = "kjapi.com"; return results
+    
+    elapsed = time.time() - t0
+    print(f"  [数据源] 全部5源失败 (耗时{elapsed:.1f}s), 使用嵌入数据兜底")
     return []
 
 
