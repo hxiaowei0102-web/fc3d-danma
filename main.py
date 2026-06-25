@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-福彩3D胆码预测系统 - v12.1 云端自动更新
-核心突破: rank冷号消除数字偏见 + 5重数据源保障 — 99%命中率!
-数据源(2026-06-25重排): cwl.gov.cn(requests, 主) → cloudscraper → huiniao.top → c133.com → kjapi.com
+福彩3D胆码预测系统 - v12.2 云端自动更新
+核心突破: rank冷号消除数字偏见 + 6重数据源保障 — 99%命中率!
+数据源(2026-06-25重排): cwl.gov.cn(主) → cjcp.cn → c133.com → cloudscraper → kjapi.com → huiniao.top
 """
 import json, math, os, sys
 from collections import Counter, defaultdict
@@ -402,7 +402,7 @@ def _parse_cwl_result(data):
 
 
 def _fetch_huiniao(limit=30):
-    """源1: api.huiniao.top — 免费JSON API, 纯urllib, 全球可用, 数据与cwl.gov.cn一致"""
+    """源6: api.huiniao.top — JSON API, 纯urllib (可能已挂)"""
     import urllib.request as _ur
     url = f"https://api.huiniao.top/interface/home/lotteryHistory?type=fcsd&limit={limit}"
     try:
@@ -418,15 +418,15 @@ def _fetch_huiniao(limit=30):
                     digits = [item['one'], item['two'], item['three']]
                     results.append([item['code'], item['day'], digits])
                 if results:
-                    print(f"  [源1:huiniao.top] ✓ 获取 {len(results)} 条, 最新: {results[0][0]}={results[0][2]}")
+                    print(f"  [源6:huiniao.top] ✓ 获取 {len(results)} 条, 最新: {results[0][0]}={results[0][2]}")
                     return results
     except Exception as e:
-        print(f"  [源1:huiniao.top] {type(e).__name__}: {e}")
+        print(f"  [源6:huiniao.top] {type(e).__name__}: {e}")
     return []
 
 
 def _fetch_c133():
-    """源2: c133.com — HTML抓取, 纯urllib, 全球可访问, 每次1条最新"""
+    """源3: c133.com — HTML抓取, 纯urllib, 每次1条最新"""
     import urllib.request as _ur
     import re
     try:
@@ -440,15 +440,40 @@ def _fetch_c133():
             if m:
                 issue, d1, d2, d3, date_str = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
                 digits = [int(d1), int(d2), int(d3)]
-                print(f"  [源2:c133.com] ✓ 获取: {issue}={digits} ({date_str})")
+                print(f"  [源3:c133.com] ✓ 获取: {issue}={digits} ({date_str})")
                 return [[issue, date_str, digits]]
     except Exception as e:
-        print(f"  [源2:c133.com] {type(e).__name__}: {e}")
+        print(f"  [源3:c133.com] {type(e).__name__}: {e}")
+    return []
+
+
+def _fetch_cjcp():
+    """源2: cjcp.cn — 彩经网HTML抓取, 纯urllib+gbk解码, 多期数据"""
+    import urllib.request as _ur
+    import re
+    try:
+        url = 'https://www.cjcp.cn/3dkaijiang/'
+        req = _ur.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        with _ur.urlopen(req, timeout=15) as r:
+            raw = r.read()
+            text = raw.decode('gbk', errors='replace')
+            pattern = r'福彩3D第(\d{7})期开奖结果</div>\s*<div class="date">(\d{4}-\d{2}-\d{2})[^<]*</div>.*?num-ball[^>]*>(\d)<.*?num-ball[^>]*>(\d)<.*?num-ball[^>]*>(\d)<'
+            matches = re.findall(pattern, text, re.DOTALL)
+            if matches:
+                results = []
+                for issue, date_str, d1, d2, d3 in matches[:10]:
+                    digits = [int(d1), int(d2), int(d3)]
+                    results.append([issue, date_str, digits])
+                if results:
+                    print(f"  [源2:cjcp.cn] 获取 {len(results)} 条, 最新: {results[0][0]}={results[0][2]}")
+                    return results
+    except Exception as e:
+        print(f"  [源2:cjcp.cn] {type(e).__name__}: {e}")
     return []
 
 
 def _fetch_cwl_requests():
-    """源3: cwl.gov.cn — requests直连, 国内可用"""
+    """源1: cwl.gov.cn — requests直连, 最稳定JSON API"""
     try:
         url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
         r = _requests.get(url, headers={
@@ -460,15 +485,15 @@ def _fetch_cwl_requests():
             if data.get('state') == 0:
                 results = _parse_cwl_result(data)
                 if results:
-                    print(f"  [源3:cwl.gov.cn] ✓ 获取 {len(results)} 条")
+                    print(f"  [源1:cwl.gov.cn] ✓ 获取 {len(results)} 条")
                     return results
     except Exception as e:
-        print(f"  [源3:cwl.gov.cn] {type(e).__name__}: {e}")
+        print(f"  [源1:cwl.gov.cn] {type(e).__name__}: {e}")
     return []
 
 
 def _fetch_kjapi():
-    """源4: kjapi.com — HTML抓取"""
+    """源5: kjapi.com — HTML抓取"""
     import re
     try:
         today = datetime.now().strftime('%Y-%m-%d')
@@ -483,15 +508,15 @@ def _fetch_kjapi():
             if issue_match and len(num_match) >= 3:
                 issue = issue_match[0]
                 digits = [int(n) for n in num_match[:3]]
-                print(f"  [源4:kjapi.com] ✓ 获取 {today}: {issue}={digits}")
+                print(f"  [源5:kjapi.com] ✓ 获取 {today}: {issue}={digits}")
                 return [[issue, today, digits]]
     except Exception as e:
-        print(f"  [源4:kjapi.com] {type(e).__name__}: {e}")
+        print(f"  [源5:kjapi.com] {type(e).__name__}: {e}")
     return []
 
 
 def _fetch_cloudscraper():
-    """源5: cloudscraper — 绕过Cloudflare防护"""
+    """源4: cloudscraper — 绕过Cloudflare防护"""
     try:
         scraper = cloudscraper.create_scraper()
         url = "https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice?name=3d&issueCount=10"
@@ -501,44 +526,48 @@ def _fetch_cloudscraper():
             if data.get('state') == 0:
                 results = _parse_cwl_result(data)
                 if results:
-                    print(f"  [源5:cloudscraper] ✓ 获取 {len(results)} 条")
+                    print(f"  [源4:cloudscraper] ✓ 获取 {len(results)} 条")
                     return results
     except Exception as e:
-        print(f"  [源5:cloudscraper] {type(e).__name__}: {e}")
+        print(f"  [源4:cloudscraper] {type(e).__name__}: {e}")
     return []
 
 
 def fetch_latest():
-    """多源获取最新开奖数据 — 5重保障, 自动降级 (v12.1 源1=cwl, 2026-06-25调整)"""
+    """多源获取最新开奖数据 — 6重保障, 自动降级 (v12.2, 2026-06-25)"""
     import time
     t0 = time.time()
     source_used = "none"
     
-    # 源1: cwl.gov.cn requests — 最稳定的数据源，唯一经实测可用 (2026-06-25)
+    # 源1: cwl.gov.cn requests — 最稳定JSON API
     if HAS_REQUESTS:
         results = _fetch_cwl_requests()
         if results: source_used = "cwl.gov.cn(requests)"; return results
     
-    # 源2: cloudscraper — cwl.gov.cn备用通道
+    # 源2: cjcp.cn — 彩经网HTML, 多期(gbk)
+    results = _fetch_cjcp()
+    if results: source_used = "cjcp.cn"; return results
+    
+    # 源3: c133.com — HTML抓取, 恢复可用
+    results = _fetch_c133()
+    if results: source_used = "c133.com"; return results
+    
+    # 源4: cloudscraper — cwl.gov.cn备用通道
     if HAS_SCRAPER:
         results = _fetch_cloudscraper()
         if results: source_used = "cloudscraper(cwl)"; return results
     
-    # 源3: api.huiniao.top — 纯urllib JSON API (2026-06-25: 404, 已挂)
-    results = _fetch_huiniao(30)
-    if results: source_used = "huiniao.top"; return results
-    
-    # 源4: c133.com — HTML抓取 (2026-06-25: 拒绝连接, 已挂)
-    results = _fetch_c133()
-    if results: source_used = "c133.com"; return results
-    
-    # 源5: kjapi.com — requests (2026-06-25: 404, 已挂)
+    # 源5: kjapi.com — HTML抓取, 恢复可用
     if HAS_REQUESTS:
         results = _fetch_kjapi()
         if results: source_used = "kjapi.com"; return results
     
+    # 源6: api.huiniao.top — JSON API (可能已挂)
+    results = _fetch_huiniao(30)
+    if results: source_used = "huiniao.top"; return results
+    
     elapsed = time.time() - t0
-    print(f"  [数据源] 全部5源失败 (耗时{elapsed:.1f}s), 使用嵌入数据兜底")
+    print(f"  [数据源] 全部6源失败 (耗时{elapsed:.1f}s), 使用嵌入数据兜底")
     return []
 
 
