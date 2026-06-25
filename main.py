@@ -933,8 +933,8 @@ def run_backtest(all_data, n=100):
 # ============================================================
 
 def generate_html(all_data, bt100, state):
-    algo_name = "去偏冷号融合 v12.0"
-    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v12.0 云端自动更新</span>'
+    algo_name = "去偏冷号融合 v12.2"
+    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v12.2 云端自动更新</span>'
 
     div_hist = state['stats'].get('recent_picks', [])
     next_picks, _ = predict_v10(all_data, div_history=div_hist if div_hist else None)
@@ -1108,7 +1108,7 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 
 def main():
     print("=" * 55)
-    print("  福彩3D胆码预测系统 · v12.0 云端自动更新")
+    print("  福彩3D胆码预测系统 · v12.2 云端自动更新")
     print("  5维信号 · rank冷号消除偏见 · 动态保护 · 自主迭代")
     print("=" * 55)
 
