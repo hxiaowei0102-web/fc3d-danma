@@ -980,7 +980,7 @@ def generate_html(all_data, bt100, state):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>晓炜胆码 · 五胆码</title>
+<title>五胆码 · 晓炜胆码</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#f8fafc;color:#334155;min-height:100vh}}
@@ -1043,7 +1043,7 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 </head>
 <body>
 <div class="header">
-  <h1>晓炜胆码 · 五胆码</h1>
+  <h1>五胆码 · 晓炜胆码</h1>
   <div class="sub">{algo_name} · 5维信号 · rank冷号 · 动态保护{v11_badge}</div>
 </div>
 
