@@ -44,16 +44,10 @@ jobs:
       - name: Run 五胆码 prediction
         run: python main.py
 
-      - name: Run 四胆码 prediction
-        run: python main_4d.py
-
-      - name: Generate merged page
-        run: python generate_merged.py
-
       - name: Check for changes
         id: changed
         run: |
-          git add index.html predictions.json index_4d.html predictions_4d.json index_merged.html
+          git add index.html predictions.json
           git diff --staged --quiet && echo "has_changes=false" >> $GITHUB_OUTPUT || echo "has_changes=true" >> $GITHUB_OUTPUT
 
       - name: Commit and push
