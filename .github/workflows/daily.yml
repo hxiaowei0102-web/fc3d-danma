@@ -4,11 +4,7 @@ on:
   push:
     branches: [master]
   schedule:
-    # 北京时间 20:00 ~ 02:00 每30分钟一次，共13重保障
-    - cron: '0 12 * * *'   # BJS 20:00
-    - cron: '30 12 * * *'  # BJS 20:30
-    - cron: '0 13 * * *'   # BJS 21:00
-    - cron: '30 13 * * *'  # BJS 21:30
+    # 开奖21:30后 → 北京时间 22:00 ~ 03:00 每30分钟，共11重保障
     - cron: '0 14 * * *'   # BJS 22:00
     - cron: '30 14 * * *'  # BJS 22:30
     - cron: '0 15 * * *'   # BJS 23:00
@@ -18,6 +14,8 @@ on:
     - cron: '0 17 * * *'   # BJS 01:00
     - cron: '30 17 * * *'  # BJS 01:30
     - cron: '0 18 * * *'   # BJS 02:00
+    - cron: '30 18 * * *'  # BJS 02:30
+    - cron: '0 19 * * *'   # BJS 03:00
   workflow_dispatch:
 
 permissions:
