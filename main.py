@@ -586,15 +586,83 @@ def load_data():
     if latest:
         existing = set(d[0] for d in data)
         added = 0
+        rejected = 0
         for d in latest:
             if d[0] not in existing:
+                # 严格校验：防止乱码数据混入
+                if not _validate_issue(d[0]) or len(d[2]) != 3 or not all(_validate_digit(x) for x in d[2]):
+                    rejected += 1
+                    continue
                 data.append(d); added += 1
-        print(f"  [在线] 新增 {added} 期")
+        if rejected:
+            print(f"  [在线] 新增 {added} 期, 拒绝 {rejected} 条乱码")
+        else:
+            print(f"  [在线] 新增 {added} 期")
     else:
         print(f"  [在线] 未获取到新数据，使用嵌入数据")
     data.sort(key=lambda x: x[0])
     print(f"  [OK] 共 {len(data)} 期: {data[0][0]} ~ {data[-1][0]}")
     return data
+
+
+def _validate_digit(d):
+    """验证开奖数字: 必须是0-9的单个整数"""
+    return isinstance(d, int) and 0 <= d <= 9
+
+
+def _validate_issue(issue):
+    """验证期号: 必须是7位数字"""
+    return isinstance(issue, str) and len(issue) == 7 and issue.isdigit()
+
+
+def update_embedded(data, script_path=None):
+    """自动更新EMBEDDED嵌入式数据，确保永远最新。硬防线：防止乱码。"""
+    if script_path is None:
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'main.py')
+    
+    # 从all_data提取最新期号
+    latest_embedded = EMBEDDED[-1][0] if EMBEDDED else ""
+    new_entries = []
+    for rec in data:
+        issue = rec[0]
+        if issue > latest_embedded:
+            date = rec[1]
+            digits = rec[2]
+            # 严格校验：防止乱码数据写入EMBEDDED
+            if not _validate_issue(issue):
+                continue
+            if len(digits) != 3 or not all(_validate_digit(d) for d in digits):
+                continue
+            new_entries.append((issue, date, digits))
+    
+    if not new_entries:
+        return 0
+    
+    # 读取当前脚本
+    with open(script_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # 找到EMBEDDED结束标记并插入新条目
+    marker = "\n]"
+    marker_pos = content.rfind(marker)
+    if marker_pos == -1:
+        return 0
+    
+    # 构建新条目文本
+    new_lines = []
+    for issue, date, digits in new_entries:
+        new_lines.append(f'    ["{issue}","{date}",{digits}],')
+    
+    insert_text = "\n" + "\n".join(new_lines)
+    
+    # 插入到]之前
+    new_content = content[:marker_pos] + insert_text + content[marker_pos:]
+    
+    with open(script_path, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    
+    print(f"  [EMBEDDED] 自动补全 {len(new_entries)} 期: {new_entries[0][0]}~{new_entries[-1][0]}")
+    return len(new_entries)
 
 
 # ============================================================
@@ -1169,6 +1237,9 @@ def main():
     print("=" * 55)
 
     all_data = load_data()
+    
+    # 硬防线：自动更新EMBEDDED数据(防止乱码/数据断层)
+    update_embedded(all_data)
 
     print(f"\n[学习] 加载历史状态...")
     state = load_state()
