@@ -883,9 +883,15 @@ def learn_from_history(state, all_data):
 
 
 def add_prediction(state, issue, picks, signals):
-    # 去重：如果已有同号未验证预测，跳过
+    """添加新预测。如果已存在未验证且picks不同，更新；相同则跳过。"""
     for p in state['predictions']:
         if p['issue'] == issue and not p.get('verified'):
+            if p['picks'] != picks:
+                # 更新预测（数据变化导致不同）
+                p['picks'] = picks
+                p['signals'] = {name: {str(d): round(signals[name][d], 4) for d in range(10)}
+                                for name in SIGNAL_NAMES}
+                p['predicted_date'] = datetime.now().strftime('%Y-%m-%d %H:%M')
             return state
     if len(state['predictions']) > 200:
         state['predictions'] = state['predictions'][-200:]
@@ -898,6 +904,32 @@ def add_prediction(state, issue, picks, signals):
                     for name in SIGNAL_NAMES},
         'actual': None, 'verified': False
     })
+    return state
+
+
+def fill_missing_predictions(state, all_data):
+    """补全predictions.json中缺失的预测记录。根因：数据源延迟导致中间期被跳过。"""
+    predicted_issues = {p['issue'] for p in state['predictions']}
+    # 只检查最近20期（避免遍历全部历史）
+    recent_data = all_data[-20:]
+    missing = [rec for rec in recent_data if rec[0] not in predicted_issues]
+    if not missing:
+        return state
+    
+    print(f"  [补全] 缺失 {len(missing)} 期预测记录")
+    data_by_issue = {d[0]: d for d in all_data}
+    for rec in missing:
+        issue = rec[0]
+        idx = all_data.index(rec)
+        data_before = all_data[:idx]
+        if len(data_before) < 20:
+            continue
+        div_hist = state['stats'].get('recent_picks', [])
+        p, s = predict_v10(data_before, div_history=div_hist[-DIV_WINDOW:] if div_hist else None)
+        state = add_prediction(state, issue, p, s)
+        if div_hist:
+            div_hist.append(p)
+        print(f"    {issue}: {' '.join(str(d) for d in p)}")
     return state
 
 
@@ -1140,6 +1172,10 @@ def main():
 
     print(f"\n[学习] 加载历史状态...")
     state = load_state()
+    
+    # 补全缺失预测（根因：数据源延迟导致中间期被跳过）
+    state = fill_missing_predictions(state, all_data)
+    
     learned = learn_from_history(state, all_data)
     if learned:
         print(f"  [学习完成] 共 {state['stats']['total_verified']} 期已验证")
