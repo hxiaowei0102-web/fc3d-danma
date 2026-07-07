@@ -962,8 +962,22 @@ def generate_html(all_data, bt100, state):
         for name in SIGNAL_NAMES
     )
 
+    # 合并历史预测：predictions.json中的记录优先于回测重算
+    hist_picks = {}
+    for p in state.get('predictions', []):
+        if p.get('verified') and p.get('picks'):
+            hist_picks[p['issue']] = p['picks']
+
     det_html = ''
     for r in reversed(bt100['details']):
+        # 如果有历史记录，用历史预测替代回测重算
+        if r['issue'] in hist_picks:
+            hp = hist_picks[r['issue']]
+            actual_set = set(r['actual'])
+            # 用历史picks重新计算命中
+            r['picks'] = hp
+            r['hit'] = any(d in actual_set for d in hp)
+            r['n_hits'] = sum(1 for d in hp if d in actual_set)
         ast = ' '.join(str(d) for d in r['actual'])
         actual_set = set(r['actual'])
         pballs = ''.join(
@@ -974,8 +988,10 @@ def generate_html(all_data, bt100, state):
         det_html += (f'<tr class="{cls}"><td>{r["issue"]}</td><td>{r["date"]}</td>'
                    f'<td class="ac">{ast}</td><td class="pc">{pballs}</td><td>{mark}</td></tr>')
 
-    hn, mn = bt100['hit_count'], bt100['periods'] - bt100['hit_count']
-    hr = bt100['hit_rate'] * 100
+    # 重新计算命中率（合并历史记录后）
+    bt100_hit = sum(1 for r in bt100['details'] if r['hit'])
+    hn, mn = bt100_hit, bt100['periods'] - bt100_hit
+    hr = bt100_hit / bt100['periods'] * 100
 
     hot_nums = Counter()
     for r in bt100['details']:
