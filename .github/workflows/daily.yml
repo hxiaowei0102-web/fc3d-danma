@@ -45,7 +45,7 @@ jobs:
       - name: Check for changes
         id: changed
         run: |
-          git add index.html predictions.json index_4d.html
+          git add index.html predictions.json fc3d_history.csv
           git diff --staged --quiet && echo "has_changes=false" >> $GITHUB_OUTPUT || echo "has_changes=true" >> $GITHUB_OUTPUT
 
       - name: Commit and push
