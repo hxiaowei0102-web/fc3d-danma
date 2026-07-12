@@ -389,6 +389,7 @@ EMBEDDED = [
     ["2026175","2026-07-04",[4,2,1]],["2026176","2026-07-05",[2,6,9]],
     ["2026177","2026-07-06",[8,0,8]],["2026178","2026-07-07",[2,6,6]],
     
+    ["2026182","2026-07-11",[6, 6, 2]],
 ]
 
 
@@ -884,6 +885,25 @@ def fuse_v10(signals, div_history=None):
                        key=lambda x: base[x], reverse=True)
     needed = 5 - len(guaranteed)
     picks = list(guaranteed) + remaining[:needed]
+    
+    # === 奇偶平衡约束 ===
+    # 176-182期cold_v3/edge偏好奇数导致全偶数开奖时0交集miss
+    # 只防极端: 确保至少1偶1奇(不强制2-2避免破坏好预测)
+    evens = [d for d in picks if d % 2 == 0]
+    odds = [d for d in picks if d % 2 == 1]
+    if len(evens) == 0:
+        # 全奇数预测, 用最高分偶数替换最低分奇数
+        worst_odd = min(odds, key=lambda x: base.get(x, 0))
+        best_even = max([d for d in range(10) if d % 2 == 0 and d not in picks],
+                        key=lambda x: base.get(x, 0))
+        picks[picks.index(worst_odd)] = best_even
+    elif len(odds) == 0:
+        # 全偶数预测, 用最高分奇数替换最低分偶数
+        worst_even = min(evens, key=lambda x: base.get(x, 0))
+        best_odd = max([d for d in range(10) if d % 2 == 1 and d not in picks],
+                       key=lambda x: base.get(x, 0))
+        picks[picks.index(worst_even)] = best_odd
+    
     return picks
 
 
