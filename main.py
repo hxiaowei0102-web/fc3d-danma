@@ -582,25 +582,58 @@ def fetch_latest():
 
 def load_data():
     print("[数据] 加载福彩3D历史数据...")
-    data = list(EMBEDDED)
-    latest = fetch_latest()
-    if latest:
-        existing = set(d[0] for d in data)
-        added = 0
-        rejected = 0
-        for d in latest:
-            if d[0] not in existing:
-                # 严格校验：防止乱码数据混入
-                if not _validate_issue(d[0]) or len(d[2]) != 3 or not all(_validate_digit(x) for x in d[2]):
-                    rejected += 1
-                    continue
-                data.append(d); added += 1
-        if rejected:
-            print(f"  [在线] 新增 {added} 期, 拒绝 {rejected} 条乱码")
-        else:
-            print(f"  [在线] 新增 {added} 期")
+    
+    # 主数据源: CSV文件(8690期, 2002~2026)
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fc3d_history.csv')
+    data = []
+    csv_loaded = False
+    if os.path.exists(csv_path):
+        try:
+            import csv as _csv
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = _csv.reader(f)
+                next(reader)  # skip header
+                for row in reader:
+                    issue = row[0].strip()
+                    date = row[1].strip()
+                    digits = [int(row[2]), int(row[3]), int(row[4])]
+                    # 严格校验
+                    if _validate_issue(issue) and len(digits) == 3 and all(_validate_digit(x) for x in digits):
+                        data.append([issue, date, digits])
+            csv_loaded = True
+            print(f"  [CSV] 加载 {len(data)} 期: {data[0][0]} ~ {data[-1][0]}")
+        except Exception as e:
+            print(f"  [CSV] 加载失败: {e}")
+    
+    # 在线增量: 获取CSV没有的最新数据
+    if csv_loaded:
+        latest = fetch_latest()
+        if latest:
+            existing = set(d[0] for d in data)
+            added, rejected = 0, 0
+            for d in latest:
+                if d[0] not in existing:
+                    if not _validate_issue(d[0]) or len(d[2])!=3 or not all(_validate_digit(x) for x in d[2]):
+                        rejected += 1; continue
+                    data.append(d); added += 1
+            if added or rejected:
+                print(f"  [在线] 新增 {added} 期, 拒绝 {rejected} 条乱码")
     else:
-        print(f"  [在线] 未获取到新数据，使用嵌入数据")
+        # CSV不可用 → 降级到EMBEDDED+在线
+        data = list(EMBEDDED)
+        latest = fetch_latest()
+        if latest:
+            existing = set(d[0] for d in data)
+            added, rejected = 0, 0
+            for d in latest:
+                if d[0] not in existing:
+                    if not _validate_issue(d[0]) or len(d[2])!=3 or not all(_validate_digit(x) for x in d[2]):
+                        rejected += 1; continue
+                    data.append(d); added += 1
+            print(f"  [在线] 新增 {added} 期" + (f' 拒绝{rejected}' if rejected else ''))
+        else:
+            print(f"  [在线] 未获取到新数据")
+    
     data.sort(key=lambda x: x[0])
     print(f"  [OK] 共 {len(data)} 期: {data[0][0]} ~ {data[-1][0]}")
     return data
