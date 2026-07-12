@@ -705,8 +705,11 @@ def update_embedded(data, script_path=None):
     # 插入到]之前
     new_content = content[:marker_pos] + insert_text + content[marker_pos:]
     
-    with open(script_path, 'w', encoding='utf-8') as f:
+    # 原子写入: 先写tmp再替换, 防止中断损坏
+    tmp_path = script_path + '.tmp'
+    with open(tmp_path, 'w', encoding='utf-8') as f:
         f.write(new_content)
+    os.replace(tmp_path, script_path)
     
     print(f"  [EMBEDDED] 自动补全 {len(new_entries)} 期: {new_entries[0][0]}~{new_entries[-1][0]}")
     return len(new_entries)
@@ -956,6 +959,13 @@ def fuse_v10(signals, div_history=None):
 def predict_v10(history, div_history=None):
     signals = compute_signals_v8(history)
     if signals is None:
+        # 数据不足时用近期频次兜底, 不用盲目[0,1,2,3,4]
+        if len(history) >= 5:
+            freq = Counter()
+            for rec in history[-10:]:
+                for d in rec[2]: freq[d] += 1
+            picks = [d for d, _ in freq.most_common(5)]
+            return picks, None
         return list(range(5)), None
     picks = fuse_v10(signals, div_history=div_history)
     return picks, signals
@@ -975,7 +985,8 @@ def load_state():
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception: pass
+        except Exception as e:
+            print(f"  [WARN] predictions.json损坏: {e}, 使用空状态恢复")
     return {
         'predictions': [],
         'stats': {'total_predictions': 0, 'total_hits': 0, 'recent_10_hits': 0,
