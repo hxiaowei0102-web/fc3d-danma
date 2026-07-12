@@ -618,6 +618,19 @@ def load_data():
                     data.append(d); added += 1
             if added or rejected:
                 print(f"  [在线] 新增 {added} 期, 拒绝 {rejected} 条乱码")
+            # 自动追加到CSV文件, 保持CSV永远最新
+            if added > 0:
+                try:
+                    new_entries = [d for d in latest if d[0] not in existing 
+                                   and _validate_issue(d[0]) and len(d[2])==3 
+                                   and all(_validate_digit(x) for x in d[2])]
+                    with open(csv_path, 'a', encoding='utf-8', newline='') as f:
+                        writer = _csv.writer(f)
+                        for entry in sorted(new_entries, key=lambda x: x[0]):
+                            writer.writerow([entry[0], entry[1], entry[2][0], entry[2][1], entry[2][2], '', ''])
+                    print(f"  [CSV同步] 追加 {len(new_entries)} 期到CSV文件")
+                except Exception as e:
+                    print(f"  [CSV同步] 写入失败: {e}")
     else:
         # CSV不可用 → 降级到EMBEDDED+在线
         data = list(EMBEDDED)
