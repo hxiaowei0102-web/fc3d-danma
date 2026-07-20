@@ -49,8 +49,8 @@ SUM_WEIGHTS = {
 BOOST_MAP = {0: 1.0, 1: 1.15, 2: 1.35, 3: 1.6, 4: 1.85, 5: 2.1}
 COLD_BONUS = 1.0
 # 保护少数派参数
-GUARANTEED_COLD = 3     # cold_v3保证入选top-N (v16增强)
-COLD_EXPAND_RATIO = 0.80 # cold#4得分 > cold#3*0.80时扩容到4
+GUARANTEED_COLD = 2     # cold_v3保证入选top-N (基础)
+COLD_EXPAND_RATIO = 0.85 # cold#3得分 > cold#2*0.85时扩容到3
 GUARANTEED_EDGE = 1     # edge保证入选top-N (基础)
 EDGE_EXPAND_RATIO = 0.80 # edge#2得分 > edge#1*0.80时扩容到2
 DIV_WINDOW = 12
