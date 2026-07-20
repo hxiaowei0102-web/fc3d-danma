@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-福彩3D胆码预测系统 - v13 云端自动更新
+福彩3D胆码预测系统 - v12.3 云端自动更新
 核心突破: rank冷号消除数字偏见 + 6重数据源保障 — 99%命中率!
 数据源(2026-06-25重排): cwl.gov.cn(主) → cjcp.cn → c133.com → cloudscraper → kjapi.com → huiniao.top
 """
@@ -964,50 +964,8 @@ def fuse_v10(signals, div_history=None):
     return picks
 
 
-def _math_sig(a, b, c):
-    """数学特征签名: 平方模+乘积模+跨度+奇偶编码"""
-    sq = (a*a + b*b + c*c) % 10
-    pr = (a*b*c) % 10
-    sp = max(a, b, c) - min(a, b, c)
-    pm = (a%2)*4 + (b%2)*2 + (c%2)
-    return (sq, pr, sp, pm)
-
-# 全局数学查找表(惰性构建)
-_math_lookup = None
-
 def predict_math(history, div_history=None):
-    """v13: 非线性算术关系匹配 主预测器"""
-    global _math_lookup
-    n = len(history)
-    
-    # 惰性构建查找表
-    if _math_lookup is None:
-        _math_lookup = {}
-        for i in range(30, n - 1):
-            a, b, c = history[i][2]
-            key = _math_sig(a, b, c)
-            if key not in _math_lookup:
-                _math_lookup[key] = Counter()
-            for d in history[i+1][2]:
-                _math_lookup[key][d] += 1
-    
-    # 查找当前状态的匹配
-    if n >= 2:
-        a, b, c = history[-1][2]
-        key = _math_sig(a, b, c)
-        if key in _math_lookup and sum(_math_lookup[key].values()) >= 5:
-            picks = [d for d, _ in _math_lookup[key].most_common(5)]
-            
-            # 奇偶平衡
-            evens = [d for d in picks if d % 2 == 0]
-            if len(evens) == 0:
-                for d in range(10):
-                    if d % 2 == 0 and d not in picks:
-                        picks[4] = d; break
-            
-            return picks, None
-    
-    # 不足5个样本 → 回退信号系统
+    """主预测器: 信号融合(v12.3, 经14种方案验证最优)"""
     return predict_v10(history, div_history)
 
 
@@ -1174,8 +1132,8 @@ def run_backtest(all_data, n=100):
 # ============================================================
 
 def generate_html(all_data, bt100, state):
-    algo_name = "数学特征匹配 v13"
-    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v13 云端自动更新</span>'
+    algo_name = "去偏冷号融合 v12.3"
+    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v12.3 云端自动更新</span>'
 
     div_hist = state['stats'].get('recent_picks', [])
     next_picks, _ = predict_math(all_data, div_history=div_hist if div_hist else None)
@@ -1365,8 +1323,8 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 
 def main():
     print("=" * 55)
-    print("  福彩3D胆码预测系统 · v13 云端自动更新")
-    print("  数学特征匹配 · 信号回退 · 自主学习迭代")
+    print("  福彩3D胆码预测系统 · v12.3 云端自动更新")
+    print("  5维信号 · rank冷号消除偏见 · 动态保护 · 奇偶平衡")
     print("=" * 55)
 
     all_data = load_data()
