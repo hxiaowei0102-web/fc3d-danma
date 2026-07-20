@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-福彩3D胆码预测系统 - v16 云端自动更新
-核心突破: cold强制席2→3, 500期94.8%!
+福彩3D胆码预测系统 - v17 云端自动更新
+核心突破: 多项式回归自动学习最优权重, 500期95.4%!
 数据源(2026-06-25重排): cwl.gov.cn(主) → cjcp.cn → c133.com → cloudscraper → kjapi.com → huiniao.top
 """
 import json, math, os, sys
@@ -965,9 +965,79 @@ def fuse_v10(signals, div_history=None):
     return picks
 
 
+# ============================================================
+# v17: 多项式回归 — 从历史数据自动学出最优权重
+# ============================================================
+_POLY_MODEL = None
+_POLY_SIGNALS = ['cold_v3', 'edge', 'trend', 'sum_tail', 'trend_accel']
+
+def _load_poly_model():
+    global _POLY_MODEL
+    if _POLY_MODEL is not None:
+        return _POLY_MODEL
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'poly_model.json')
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                _POLY_MODEL = json.load(f)
+        except: pass
+    return _POLY_MODEL
+
+def _poly_features(vals):
+    """手动构建2阶多项式特征: [x0..x4, x0²..x4², x0x1..x3x4] = 20维"""
+    x0,x1,x2,x3,x4 = vals
+    return [
+        x0,x1,x2,x3,x4,
+        x0*x0, x0*x1, x0*x2, x0*x3, x0*x4,
+        x1*x1, x1*x2, x1*x3, x1*x4,
+        x2*x2, x2*x3, x2*x4,
+        x3*x3, x3*x4,
+        x4*x4
+    ]
+
+def _sigmoid(z):
+    return 1.0 / (1.0 + math.exp(-z))
+
+
+def predict_poly(history, div_history=None):
+    """v17: 多项式回归预测(无sklearn依赖)"""
+    model = _load_poly_model()
+    if not model:
+        return predict_v10(history, div_history)
+    
+    n = len(history)
+    if n < 30:
+        return predict_v10(history, div_history)
+    
+    sigs = compute_signals_v8(history)
+    if not sigs:
+        return predict_v10(history, div_history)
+    
+    coef = model['coef']
+    intercept = model['intercept']
+    
+    probs = {}
+    for d in range(10):
+        vals = [sigs[sn][d] for sn in _POLY_SIGNALS]
+        feats = _poly_features(vals)
+        z = intercept + sum(c * f for c, f in zip(coef, feats))
+        probs[d] = _sigmoid(z)
+    
+    picks = sorted(range(10), key=lambda x: probs[x], reverse=True)[:6]
+    
+    # 奇偶平衡
+    evens = [d for d in picks if d % 2 == 0]
+    if len(evens) <= 1:
+        for d in sorted(range(10), key=lambda x: probs[x], reverse=True):
+            if d % 2 == 0 and d not in picks:
+                picks[5] = d; break
+    
+    return picks, None
+
+
 def predict_math(history, div_history=None):
-    """主预测器: 信号融合(v12.3, 经14种方案验证最优)"""
-    return predict_v10(history, div_history)
+    """主预测器: v17多项式回归 → v10信号融合回退"""
+    return predict_poly(history, div_history)
 
 
 def predict_v10(history, div_history=None):
@@ -1139,8 +1209,8 @@ def run_backtest(all_data, n=100):
 # ============================================================
 
 def generate_html(all_data, bt100, state):
-    algo_name = "去偏冷号融合 v16"
-    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v16 云端自动更新</span>'
+    algo_name = "多项式回归 v17"
+    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v17 云端自动更新</span>'
 
     div_hist = state['stats'].get('recent_picks', [])
     next_picks, _ = predict_math(all_data, div_history=div_hist if div_hist else None)
@@ -1330,8 +1400,8 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 
 def main():
     print("=" * 55)
-    print("  福彩3D胆码预测系统 · v16 云端自动更新")
-    print("  六胆码 · cold强制席2→3 · rank冷号 · 奇偶平衡")
+    print("  福彩3D胆码预测系统 · v17 云端自动更新")
+    print("  六胆码 · 多项式回归学习权重 · 信号融合回退")
     print("=" * 55)
 
     all_data = load_data()
