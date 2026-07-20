@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-福彩3D胆码预测系统 - v12.3 云端自动更新
-核心突破: rank冷号消除数字偏见 + 6重数据源保障 — 99%命中率!
+福彩3D胆码预测系统 - v15 云端自动更新
+核心突破: rank冷号消除数字偏见 + 6重数据源保障 — 六胆码!
 数据源(2026-06-25重排): cwl.gov.cn(主) → cjcp.cn → c133.com → cloudscraper → kjapi.com → huiniao.top
 """
 import json, math, os, sys
@@ -940,7 +940,7 @@ def fuse_v10(signals, div_history=None):
     # 剩余名额
     remaining = sorted([d for d in range(10) if d not in guaranteed],
                        key=lambda x: base[x], reverse=True)
-    needed = 5 - len(guaranteed)
+    needed = 6 - len(guaranteed)
     picks = list(guaranteed) + remaining[:needed]
     
     # === 奇偶平衡约束 ===
@@ -977,9 +977,9 @@ def predict_v10(history, div_history=None):
             freq = Counter()
             for rec in history[-10:]:
                 for d in rec[2]: freq[d] += 1
-            picks = [d for d, _ in freq.most_common(5)]
+            picks = [d for d, _ in freq.most_common(6)]
             return picks, None
-        return list(range(5)), None
+        return list(range(6)), None
     picks = fuse_v10(signals, div_history=div_history)
     return picks, signals
 
@@ -1132,8 +1132,8 @@ def run_backtest(all_data, n=100):
 # ============================================================
 
 def generate_html(all_data, bt100, state):
-    algo_name = "去偏冷号融合 v12.3"
-    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v12.3 云端自动更新</span>'
+    algo_name = "去偏冷号融合 v15"
+    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v15 云端自动更新</span>'
 
     div_hist = state['stats'].get('recent_picks', [])
     next_picks, _ = predict_math(all_data, div_history=div_hist if div_hist else None)
@@ -1187,7 +1187,7 @@ def generate_html(all_data, bt100, state):
     hot_nums = Counter()
     for r in bt100['details']:
         for d in r['picks']: hot_nums[d] += 1
-    top_hot = sorted(hot_nums.items(), key=lambda x: x[1], reverse=True)[:5]
+    top_hot = sorted(hot_nums.items(), key=lambda x: x[1], reverse=True)[:6]
     hot_html = ''.join(f'<span class="ht">{d}<small>{c}次</small></span>' for d, c in top_hot)
 
     return f'''<!DOCTYPE html>
@@ -1195,7 +1195,7 @@ def generate_html(all_data, bt100, state):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>五胆码 · 晓炜胆码</title>
+<title>六胆码 · 晓炜胆码</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#f8fafc;color:#334155;min-height:100vh}}
@@ -1258,8 +1258,8 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 </head>
 <body>
 <div class="header">
-  <h1>五胆码 · 晓炜胆码</h1>
-  <div class="sub">{algo_name} · 5维信号 · rank冷号 · 动态保护{v11_badge}</div>
+  <h1>六胆码 · 晓炜胆码</h1>
+  <div class="sub">{algo_name} · 6胆码 · rank冷号 · 动态保护{v11_badge}</div>
 </div>
 
 <div class="container">
@@ -1323,8 +1323,8 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 
 def main():
     print("=" * 55)
-    print("  福彩3D胆码预测系统 · v12.3 云端自动更新")
-    print("  5维信号 · rank冷号消除偏见 · 动态保护 · 奇偶平衡")
+    print("  福彩3D胆码预测系统 · v15 云端自动更新")
+    print("  六胆码 · rank冷号消除偏见 · 动态保护 · 奇偶平衡")
     print("=" * 55)
 
     all_data = load_data()
@@ -1355,7 +1355,7 @@ def main():
     div_hist = state['stats'].get('recent_picks', [])
     next_picks, signals = predict_math(all_data, div_history=div_hist if div_hist else None)
     next_issue = str(int(all_data[-1][0]) + 1)
-    print(f"\n[预测] 下期 {next_issue} 5胆码: {' '.join(str(d) for d in next_picks)}")
+    print(f"\n[预测] 下期 {next_issue} 6胆码: {' '.join(str(d) for d in next_picks)}")
 
     state = add_prediction(state, next_issue, next_picks, signals)
     save_state(state)
