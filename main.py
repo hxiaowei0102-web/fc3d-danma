@@ -398,6 +398,7 @@ EMBEDDED = [
     ["2026188","2026-07-17",[9, 6, 9]],
     ["2026189","2026-07-18",[5, 5, 8]],
     ["2026190","2026-07-19",[0, 2, 6]],
+    ["2026191","2026-07-20",[9, 0, 6]],
 ]
 
 
@@ -1195,7 +1196,7 @@ def generate_html(all_data, bt100, state):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>六胆码 · 晓炜胆码</title>
+<title>六胆码</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:#f8fafc;color:#334155;min-height:100vh}}
@@ -1258,7 +1259,7 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 </head>
 <body>
 <div class="header">
-  <h1>六胆码 · 晓炜胆码</h1>
+  <h1>六胆码</h1>
   <div class="sub">{algo_name} · 6胆码 · rank冷号 · 动态保护{v11_badge}</div>
 </div>
 
