@@ -1354,8 +1354,6 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
   <div class="stats">
     <div class="stat s1"><div class="val">{hr:.1f}%</div><div class="lbl">100期回测命中率</div></div>
     <div class="stat s2"><div class="val">{hn}/{bt100['periods']}</div><div class="lbl">回测命中期数</div></div>
-    <div class="stat s3"><div class="val">{live_hr}</div><div class="lbl">实盘命中率({total_pred}期)</div></div>
-    <div class="stat s4"><div class="val">{recent_10}/10</div><div class="lbl">最近10期命中</div></div>
   </div>
 
   <div class="section">
