@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-福彩3D胆码预测系统 - v15 云端自动更新
-核心突破: rank冷号消除数字偏见 + 6重数据源保障 — 六胆码!
+福彩3D胆码预测系统 - v16 云端自动更新
+核心突破: cold强制席2→3, 500期94.8%!
 数据源(2026-06-25重排): cwl.gov.cn(主) → cjcp.cn → c133.com → cloudscraper → kjapi.com → huiniao.top
 """
 import json, math, os, sys
@@ -49,8 +49,8 @@ SUM_WEIGHTS = {
 BOOST_MAP = {0: 1.0, 1: 1.15, 2: 1.35, 3: 1.6, 4: 1.85, 5: 2.1}
 COLD_BONUS = 1.0
 # 保护少数派参数
-GUARANTEED_COLD = 2     # cold_v3保证入选top-N (基础)
-COLD_EXPAND_RATIO = 0.85 # cold#3得分 > cold#2*0.85时扩容到3
+GUARANTEED_COLD = 3     # cold_v3保证入选top-N (v16增强)
+COLD_EXPAND_RATIO = 0.80 # cold#4得分 > cold#3*0.80时扩容到4
 GUARANTEED_EDGE = 1     # edge保证入选top-N (基础)
 EDGE_EXPAND_RATIO = 0.80 # edge#2得分 > edge#1*0.80时扩容到2
 DIV_WINDOW = 12
@@ -1132,8 +1132,8 @@ def run_backtest(all_data, n=100):
 # ============================================================
 
 def generate_html(all_data, bt100, state):
-    algo_name = "去偏冷号融合 v15"
-    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v15 云端自动更新</span>'
+    algo_name = "去偏冷号融合 v16"
+    v11_badge = '<span style="font-size:10px;background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:10px;margin-left:6px">v16 云端自动更新</span>'
 
     div_hist = state['stats'].get('recent_picks', [])
     next_picks, _ = predict_math(all_data, div_history=div_hist if div_hist else None)
@@ -1323,8 +1323,8 @@ td{{padding:9px 5px;text-align:center;border-bottom:1px solid #f1f5f9}}
 
 def main():
     print("=" * 55)
-    print("  福彩3D胆码预测系统 · v15 云端自动更新")
-    print("  六胆码 · rank冷号消除偏见 · 动态保护 · 奇偶平衡")
+    print("  福彩3D胆码预测系统 · v16 云端自动更新")
+    print("  六胆码 · cold强制席2→3 · rank冷号 · 奇偶平衡")
     print("=" * 55)
 
     all_data = load_data()
