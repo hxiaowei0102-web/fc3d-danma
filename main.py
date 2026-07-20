@@ -1009,8 +1009,14 @@ def load_state():
 
 
 def save_state(state):
-    with open(get_state_path(), 'w', encoding='utf-8') as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    try:
+        path = get_state_path()
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except Exception as e:
+        print(f"  [WARN] 状态保存失败: {e}")
 
 
 def learn_from_history(state, all_data):
