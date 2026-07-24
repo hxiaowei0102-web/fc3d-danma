@@ -402,6 +402,7 @@ EMBEDDED = [
     ["2026192","2026-07-21",[4, 2, 5]],
     ["2026193","2026-07-22",[2, 5, 4]],
     ["2026194","2026-07-23",[2, 8, 3]],
+    ["2026195","2026-07-24",[2, 7, 5]],
 ]
 
 
@@ -586,7 +587,7 @@ def _fetch_55128(limit=30):
 
 
 def _fetch_8200(limit=30):
-    """源8: 8200.cn — 彩宝网，表格结构"""
+    """源8: 8200.cn — 彩宝网，span.ball结构"""
     import urllib.request as _ur
     import re, ssl
     ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
@@ -597,17 +598,13 @@ def _fetch_8200(limit=30):
             html = r.read().decode('utf-8', errors='ignore')
         
         results = []
-        # 匹配: 期号+N个数字格式: <tr>..2026194..2..8..3..</tr>
-        rows = re.findall(r'(\d{7})</a>.*?<span[^>]*>(\d)</span>.*?<span[^>]*>(\d)</span>.*?<span[^>]*>(\d)</span>', html, re.DOTALL)
-        if not rows:
-            rows = re.findall(r'(\d{7})</a>.*?(\d)\s+(\d)\s+(\d)', html, re.DOTALL)
+        # 匹配: <tr>...<a>2026195</a>...<span class="ball">2</span><span class="ball">7</span><span class="ball">5</span>
+        rows = re.findall(r'(\d{7})</a>.*?<span class="ball">(\d)</span><span class="ball">(\d)</span><span class="ball">(\d)</span>', html, re.DOTALL)
         for r in rows[:limit]:
-            issue = r[0]
-            digits = [int(r[1]), int(r[2]), int(r[3])]
-            date = datetime.now().strftime('%Y-%m-%d')
-            results.append((issue, date, digits))
+            issue, d1, d2, d3 = r[0], int(r[1]), int(r[2]), int(r[3])
+            results.append((issue, datetime.now().strftime('%Y-%m-%d'), [d1, d2, d3]))
         if results:
-            print(f"  [源8:8200.cn] ✓ 获取 {len(results)} 条 (首:{results[0][0]}={results[0][2]})")
+            print(f"  [源8:8200.cn] ✓ {len(results)}条 (首:{results[0][0]}=[{results[0][2][0]},{results[0][2][1]},{results[0][2][2]}])")
         return results
     except Exception as e:
         print(f"  [源8:8200.cn] {type(e).__name__}: {str(e)[:60]}")
@@ -641,49 +638,63 @@ def _fetch_tqcp(limit=30):
 
 
 def fetch_latest():
-    """多源获取最新开奖数据 — 6重保障, 自动降级 (v12.2, 2026-06-25)"""
+    """多源获取最新开奖数据 — 9重保障, 自动降级, 贪婪收敛(v17.1, 2026-07-25)"""
     import time
     t0 = time.time()
-    source_used = "none"
+    
+    # 贪婪模式: 试全部源, 收集所有结果取最新期号
+    all_results = []
     
     # 源1: cwl.gov.cn requests — 最稳定JSON API
     if HAS_REQUESTS:
         results = _fetch_cwl_requests()
-        if results: source_used = "cwl.gov.cn(requests)"; return results
+        if results: all_results.extend(results)
     
-    # 源2: cjcp.cn — 彩经网HTML, 多期(gbk)
+    # 源2: cjcp.cn — 彩经网HTML
     results = _fetch_cjcp()
-    if results: source_used = "cjcp.cn"; return results
+    if results: all_results.extend(results)
     
-    # 源3: c133.com — HTML抓取, 恢复可用
+    # 源3: c133.com — HTML抓取
     results = _fetch_c133()
-    if results: source_used = "c133.com"; return results
+    if results: all_results.extend(results)
     
-    # 源4: cloudscraper — cwl.gov.cn备用通道
+    # 源4: cloudscraper — cwl备用
     if HAS_SCRAPER:
         results = _fetch_cloudscraper()
-        if results: source_used = "cloudscraper(cwl)"; return results
+        if results: all_results.extend(results)
     
-    # 源5: kjapi.com — HTML抓取, 恢复可用
+    # 源5: kjapi.com
     if HAS_REQUESTS:
         results = _fetch_kjapi()
-        if results: source_used = "kjapi.com"; return results
+        if results: all_results.extend(results)
     
-    # 源6: api.huiniao.top — JSON API (可能已挂)
+    # 源6: huiniao.top
     results = _fetch_huiniao(30)
-    if results: source_used = "huiniao.top"; return results
+    if results: all_results.extend(results)
     
-    # 源7: 55128.cn — HTML解析, 结构清晰稳定
+    # 源7: 55128.cn
     results = _fetch_55128()
-    if results: source_used = "55128.cn"; return results
+    if results: all_results.extend(results)
     
-    # 源8: 8200.cn — 彩宝网历史页
+    # 源8: 8200.cn — 彩宝网
     results = _fetch_8200()
-    if results: source_used = "8200.cn"; return results
+    if results: all_results.extend(results)
     
-    # 源9: tqcp.net — 天齐彩票网
+    # 源9: tqcp.net
     results = _fetch_tqcp()
-    if results: source_used = "tqcp.net"; return results
+    if results: all_results.extend(results)
+    
+    if all_results:
+        # 去重(按期号), 按日期排序, 返回所有
+        seen = set()
+        unique = []
+        for r in sorted(all_results, key=lambda x: x[0], reverse=True):
+            if r[0] not in seen:
+                seen.add(r[0])
+                unique.append(r)
+        elapsed = time.time() - t0
+        print(f"  [收敛] 9源收{len(all_results)}条, 去重{len(unique)}期 (耗时{elapsed:.1f}s)")
+        return unique
     
     elapsed = time.time() - t0
     print(f"  [数据源] 全部9源失败 (耗时{elapsed:.1f}s), 使用嵌入数据兜底")
