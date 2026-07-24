@@ -554,6 +554,92 @@ def _fetch_cloudscraper():
     return []
 
 
+def _fetch_55128(limit=30):
+    """源7: 55128.cn — HTML解析, span.ball-list结构清晰"""
+    import urllib.request as _ur
+    import re, ssl
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    try:
+        url = 'https://www.55128.cn/kjh/fcsd-history-120.htm'
+        req = _ur.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with _ur.urlopen(req, timeout=15, context=ctx) as r:
+            html = r.read().decode('utf-8', errors='ignore')
+        
+        # 找最新一期的号码: <span class="ball-list red">N</span>
+        balls = re.findall(r'<span class="ball-list red">(\d)</span>', html)
+        if len(balls) >= 3:
+            # 找最新期号
+            qs = re.findall(r'class="kaij-qs">(\d{7})</span>', html)
+            if not qs:
+                qs = re.findall(r'<a href="/kjh/fcsd-kjjg-(\d{7})', html)
+            if qs:
+                issue = qs[0]
+                digits = [int(balls[0]), int(balls[1]), int(balls[2])]
+                # 找日期
+                dt = re.findall(r'class="kaij-date">([^<]+)</span>', html)
+                date = dt[0].strip() if dt else datetime.now().strftime('%Y-%m-%d')
+                print(f"  [源7:55128.cn] ✓ {issue}=[{digits[0]}, {digits[1]}, {digits[2]}] ({date})")
+                return [(issue, date, digits)]
+    except Exception as e:
+        print(f"  [源7:55128.cn] {type(e).__name__}: {str(e)[:60]}")
+    return []
+
+
+def _fetch_8200(limit=30):
+    """源8: 8200.cn — 彩宝网，表格结构"""
+    import urllib.request as _ur
+    import re, ssl
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    try:
+        url = 'https://www.8200.cn/kjh/3d/history.htm'
+        req = _ur.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with _ur.urlopen(req, timeout=15, context=ctx) as r:
+            html = r.read().decode('utf-8', errors='ignore')
+        
+        results = []
+        # 匹配: 期号+N个数字格式: <tr>..2026194..2..8..3..</tr>
+        rows = re.findall(r'(\d{7})</a>.*?<span[^>]*>(\d)</span>.*?<span[^>]*>(\d)</span>.*?<span[^>]*>(\d)</span>', html, re.DOTALL)
+        if not rows:
+            rows = re.findall(r'(\d{7})</a>.*?(\d)\s+(\d)\s+(\d)', html, re.DOTALL)
+        for r in rows[:limit]:
+            issue = r[0]
+            digits = [int(r[1]), int(r[2]), int(r[3])]
+            date = datetime.now().strftime('%Y-%m-%d')
+            results.append((issue, date, digits))
+        if results:
+            print(f"  [源8:8200.cn] ✓ 获取 {len(results)} 条 (首:{results[0][0]}={results[0][2]})")
+        return results
+    except Exception as e:
+        print(f"  [源8:8200.cn] {type(e).__name__}: {str(e)[:60]}")
+    return []
+
+
+def _fetch_tqcp(limit=30):
+    """源9: tqcp.net — 天齐彩票网，简洁表格"""
+    import urllib.request as _ur
+    import re, ssl
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    try:
+        url = 'https://www.tqcp.net/d3d_all.php?ncount=30'
+        req = _ur.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with _ur.urlopen(req, timeout=15, context=ctx) as r:
+            html = r.read().decode('utf-8', errors='ignore')
+        
+        results = []
+        rows = re.findall(r'(\d{7}).*?(\d)\s+(\d)\s+(\d)', html)
+        for r in rows[:limit]:
+            issue = r[0]
+            digits = [int(r[1]), int(r[2]), int(r[3])]
+            date = datetime.now().strftime('%Y-%m-%d')
+            results.append((issue, date, digits))
+        if results:
+            print(f"  [源9:tqcp.net] ✓ 获取 {len(results)} 条 (首:{results[0][0]}={results[0][2]})")
+        return results
+    except Exception as e:
+        print(f"  [源9:tqcp.net] {type(e).__name__}: {str(e)[:60]}")
+    return []
+
+
 def fetch_latest():
     """多源获取最新开奖数据 — 6重保障, 自动降级 (v12.2, 2026-06-25)"""
     import time
@@ -587,8 +673,20 @@ def fetch_latest():
     results = _fetch_huiniao(30)
     if results: source_used = "huiniao.top"; return results
     
+    # 源7: 55128.cn — HTML解析, 结构清晰稳定
+    results = _fetch_55128()
+    if results: source_used = "55128.cn"; return results
+    
+    # 源8: 8200.cn — 彩宝网历史页
+    results = _fetch_8200()
+    if results: source_used = "8200.cn"; return results
+    
+    # 源9: tqcp.net — 天齐彩票网
+    results = _fetch_tqcp()
+    if results: source_used = "tqcp.net"; return results
+    
     elapsed = time.time() - t0
-    print(f"  [数据源] 全部6源失败 (耗时{elapsed:.1f}s), 使用嵌入数据兜底")
+    print(f"  [数据源] 全部9源失败 (耗时{elapsed:.1f}s), 使用嵌入数据兜底")
     return []
 
 
